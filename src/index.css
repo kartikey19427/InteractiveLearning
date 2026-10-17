@@ -64,6 +64,11 @@ h2 { font-family: var(--f-display); font-weight: 600; font-size: 22px; margin: 0
 .library a:hover { border-color: var(--accent); }
 .library h2 { font-size: 18px; }
 
+/* voices */
+.voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.voice-card audio { width: 100%; }
+.links { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+
 /* building */
 .stages { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .stages li { padding: 8px 12px; border-radius: 8px; background: var(--surface2); color: var(--muted); }

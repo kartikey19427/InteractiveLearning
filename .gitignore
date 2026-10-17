@@ -27,3 +27,5 @@ dist-ssr
 backend/.venv
 backend/.env
 __pycache__/
+backend/media/
+public/voices/*.wav

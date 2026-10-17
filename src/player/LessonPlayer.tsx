@@ -58,13 +58,24 @@ export interface StepProps<S extends Step> {
 
 export type Tone = 'ok' | 'bad' | 'info' | 'win';
 
-export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
+export interface Narration {
+  voice: string;
+  clips: Record<string, { url: string; bounds: number[] }>;
+}
+
+export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; narration?: Narration | null }) {
   const steps = lesson.steps;
   const palette = useMemo(() => ({ ...DEFAULT_PALETTE, ...lesson.palette }), [lesson.palette]);
   const fns = useMemo(() => defineFunctions(lesson.functions), [lesson.functions]);
   const timing = useMemo(
-    () => steps.map((s) => (s.kind === 'video' ? sentenceBounds(s) : { bounds: [], total: 0 })),
-    [steps],
+    () => steps.map((s) => {
+      if (s.kind !== 'video') return { bounds: [], total: 0 };
+      // With recorded narration, each sentence lasts exactly as long as it does in the audio.
+      const clip = narration?.clips?.[s.id];
+      if (clip && clip.bounds.length === s.narration.length) return { bounds: clip.bounds, total: clip.bounds[clip.bounds.length - 1] };
+      return sentenceBounds(s);
+    }),
+    [steps, narration],
   );
 
   const [index, setIndex] = useState(0);
@@ -138,26 +149,64 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
     }
   }, []);
 
+  // Recorded narration (Gemini voice) for the current step, played through one audio element.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [badClips, setBadClips] = useState<Set<string>>(() => new Set());
+  const clipFor = useCallback((s: Step) => {
+    if (s.kind !== 'video') return undefined;
+    const clip = narration?.clips?.[s.id];
+    return clip && !badClips.has(s.id) && clip.bounds.length === s.narration.length ? clip : undefined;
+  }, [narration, badClips]);
+  const getAudio = () => {
+    if (!audioRef.current) audioRef.current = new Audio();
+    return audioRef.current;
+  };
+  const stopVoice = useCallback(() => {
+    stopSpeech();
+    audioRef.current?.pause();
+  }, []);
+  const startAudio = useCallback((s: Step, url: string, from: number) => {
+    const a = getAudio();
+    const abs = new URL(url, window.location.origin).href;
+    if (a.src !== abs) { a.src = abs; a.onerror = () => setBadClips((b) => new Set(b).add(s.id)); }
+    a.currentTime = from;
+    a.play().catch((e: DOMException) => {
+      if (e.name === 'NotAllowedError') { setNeedsTap(true); setPlaying(false); }
+      else if (e.name !== 'AbortError') setBadClips((b) => new Set(b).add(s.id));
+    });
+  }, []);
+  /** Start narration for the current step at the current time: recorded audio if there is some, else the browser voice. */
+  const voiceStart = useCallback((s: Step) => {
+    if (s.kind !== 'video' || !live.current.voice) return;
+    const clip = clipFor(s);
+    const b = timing[steps.indexOf(s)]?.bounds ?? [];
+    if (clip) startAudio(s, clip.url, tRef.current);
+    else { const si = sentenceAt(b, tRef.current); speak(s.narration[si], si); }
+  }, [clipFor, startAudio, speak, timing, steps]);
+
   const markDone = useCallback((i: number) => {
     setDone((d) => (d.has(i) ? d : new Set(d).add(i)));
   }, []);
 
   const go = useCallback((i: number) => {
     const n = Math.max(0, Math.min(steps.length - 1, i));
-    stopSpeech();
+    stopVoice();
     tRef.current = 0;
     setSentence(0);
     setIndex(n);
     setVisit((v) => v + 1);
     setToast(null);
     if (steps[n].kind === 'video' && !reducedMotion) setPlaying(true);
-  }, [steps]);
+  }, [steps, stopVoice]);
 
   // Video steps drive the stage directly; activities install their own frame.
   useEffect(() => {
     if (step.kind !== 'video') return;
     const { bounds, total } = timing[index];
+    const clip = clipFor(step);
     let shown = -1;
+    // Recorded narration: the audio is the clock, so start it with the step.
+    if (clip && live.current.voice && live.current.playing) startAudio(step, clip.url, tRef.current);
     frame.current = {
       background: step.scene.background,
       tick(dt) {
@@ -168,7 +217,13 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
           const slotEnd = bounds[si] - 0.02;
           const sp = speech.current;
           let nt = t + dt;
-          if (live.current.voice && sp.si === si) {
+          const a = audioRef.current;
+          if (clip && live.current.voice) {
+            // Follow the recording exactly; hold while it loads, run out the clock once it ends.
+            if (a && a.ended) nt = t + dt;
+            else if (a && !a.paused) nt = Math.max(t, a.currentTime);
+            else nt = t;
+          } else if (live.current.voice && sp.si === si) {
             // The voice drives the clock: each sentence's slice of the animation
             // plays across exactly the time it takes to say that sentence.
             const now = performance.now();
@@ -202,7 +257,7 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
         if (si !== shown) {
           shown = si;
           setSentence(si);
-          if (live.current.playing) speak(step.narration[si], si);
+          if (live.current.playing && !(clip && live.current.voice)) speak(step.narration[si], si);
         }
       },
       draw(rc) {
@@ -210,30 +265,27 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
         drawElements(rc, step.scene.elements, { ...baseEnv, t });
       },
     };
-    return () => { frame.current = null; };
-  }, [step, index, timing, baseEnv, go, markDone, speak, steps.length]);
+    return () => { frame.current = null; audioRef.current?.pause(); };
+    // `visit` re-runs this on Restart chapter, which restarts the recording too.
+  }, [step, index, visit, timing, baseEnv, go, markDone, speak, steps.length, clipFor, startAudio]);
 
-  useEffect(() => () => stopSpeech(), []);
+  useEffect(() => () => stopVoice(), [stopVoice]);
 
   const togglePlay = () => {
     const next = !playing;
     setPlaying(next);
     setNeedsTap(false);
-    if (next && step.kind === 'video') {
-      const si = sentenceAt(timing[index].bounds, tRef.current);
-      speak(step.narration[si], si);
-    } else stopSpeech();
+    live.current.playing = next;
+    if (next) voiceStart(step);
+    else stopVoice();
   };
 
   const toggleVoice = (on: boolean) => {
     setVoice(on);
     live.current.voice = on;
     try { localStorage.setItem('voice', on ? 'on' : 'off'); } catch { /* storage unavailable */ }
-    if (!on) { stopSpeech(); setNeedsTap(false); }
-    else if (step.kind === 'video') {
-      const si = sentenceAt(timing[index].bounds, tRef.current);
-      speak(step.narration[si], si);
-    }
+    if (!on) { stopVoice(); setNeedsTap(false); }
+    else if (playing) voiceStart(step);
   };
 
   const progressOf = useCallback((i: number) => {

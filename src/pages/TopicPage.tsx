@@ -22,9 +22,12 @@ export default function TopicPage() {
       try {
         const t = await getTopic(slug);
         if (!alive) return;
-        setTopic(t);
+        // Don't remount the player when only narration changes.
+        setTopic((prev) => (prev && prev.slug === t.slug && prev.lesson && t.lesson ? { ...t, lesson: prev.lesson } : t));
         setError(null);
         if (t.status !== 'ready' && t.status !== 'failed') timer = window.setTimeout(load, 2500);
+        // Recorded narration arrives a little after the lesson; pick it up when it does.
+        else if (t.status === 'ready' && !t.narration && t.narrating) timer = window.setTimeout(load, 8000);
       } catch (err) {
         if (!alive) return;
         setError(err instanceof ApiError && err.status === 404 ? 'There is no lesson for this topic yet.' : 'Could not reach the server.');
@@ -56,7 +59,7 @@ export default function TopicPage() {
       {error && !topic && <p className="verdict no" role="alert">{error}</p>}
       {!topic && !error && <p className="note">Loading…</p>}
 
-      {topic?.status === 'ready' && topic.lesson && <LessonPlayer lesson={topic.lesson} />}
+      {topic?.status === 'ready' && topic.lesson && <LessonPlayer lesson={topic.lesson} narration={topic.narration} />}
 
       {topic && topic.status !== 'ready' && topic.status !== 'failed' && (
         <section className="panel building" aria-live="polite">

@@ -1,0 +1,59 @@
+{
+  "line": "Sunlight warms the surface of the ocean. The fastest water molecules escape into the air as an invisible gas called water vapor, and as that warm, moist air rises, it cools.",
+  "samples": [
+    {
+      "file": "/voices/gemini-3.8-flash-tts-kore.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Kore",
+      "description": "Firm, clear"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-charon.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Charon",
+      "description": "Informative, calm"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-puck.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Puck",
+      "description": "Upbeat"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-aoede.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Aoede",
+      "description": "Breezy, relaxed"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-zephyr.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Zephyr",
+      "description": "Bright"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-leda.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Leda",
+      "description": "Youthful"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-orus.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Orus",
+      "description": "Firm, deeper"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-tts-fenrir.wav",
+      "provider": "Gemini 3.8 Flash TTS",
+      "voice": "Fenrir",
+      "description": "Excitable"
+    },
+    {
+      "file": "/voices/gemini-3.8-flash-lite-tts-kore.wav",
+      "provider": "Gemini 3.8 Flash Lite TTS",
+      "voice": "Kore",
+      "description": "Firm, clear (cheaper model)"
+    }
+  ]
+}

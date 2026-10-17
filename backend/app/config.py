@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-flash-latest"
+    # Recorded narration (Gemini text-to-speech).
+    tts_model: str = "gemini-3.8-flash-tts"
+    tts_voice: str = "Charon"
 
     # Web search for research (tavily.com). Without it, the provider's own search is used.
     tavily_api_key: str | None = None

@@ -1,4 +1,5 @@
 import type { Lesson } from './lesson/types';
+import type { Narration } from './player/LessonPlayer';
 
 export type LessonStatus = 'queued' | 'researching' | 'writing' | 'checking' | 'ready' | 'failed';
 
@@ -14,6 +15,8 @@ export interface TopicDetail extends TopicSummary {
   progress: string | null;
   error: string | null;
   lesson: Lesson | null;
+  narration: Narration | null;
+  narrating: boolean;
 }
 
 export class ApiError extends Error {

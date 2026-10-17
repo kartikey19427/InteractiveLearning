@@ -6,6 +6,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +15,7 @@ from . import jobs
 from .config import get_settings
 from .db import AsyncSession, Topic, TopicAlias, get_session, init_db
 from .generator import GenerationError, MissingCredentials, ProviderUnavailable, name_topic
+from .narration import MEDIA
 from .slugs import query_key, slugify
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +36,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+MEDIA.mkdir(parents=True, exist_ok=True)
+app.mount("/api/media", StaticFiles(directory=MEDIA), name="media")
 
 
 class SearchIn(BaseModel):
@@ -58,6 +64,9 @@ class TopicDetail(TopicSummary):
     progress: str | None
     error: str | None
     lesson: dict | None
+    narration: dict | None
+    # True while recorded narration is being made; the page keeps polling until it lands.
+    narrating: bool = False
 
 
 def _summary(t: Topic) -> TopicSummary:
@@ -69,6 +78,8 @@ def _detail(t: Topic) -> TopicDetail:
         slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
         query=t.query, progress=t.progress, error=t.error,
         lesson=t.lesson if t.status == "ready" else None,
+        narration=t.narration if t.status == "ready" else None,
+        narrating=jobs.narrating(t.id),
     )
 
 
@@ -146,6 +157,9 @@ async def get_topic(slug: str, session: AsyncSession = Depends(get_session)):
     topic = await session.scalar(select(Topic).where(Topic.slug == slug))
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
+    if topic.status == "ready" and topic.narration is None:
+        # Older lessons get their recorded voice the first time someone opens them.
+        jobs.enqueue_narration(topic.id)
     return _detail(topic)
 
 

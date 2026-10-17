@@ -24,7 +24,7 @@ def call(monkeypatch, t, narrating=False, enqueued=None):
 
 
 def test_saved_chapter_plays(monkeypatch):
-    clip = {"url": "u", "bounds": [1, 2]}
+    clip = {"url": f"/m/a-elevenlabs-{MAX}.wav", "bounds": [1, 2]}
     r = call(monkeypatch, topic(voices={MAX: {"provider": "elevenlabs", "voice": MAX, "clips": {"a": clip}}}))
     assert r["state"] == "ready" and r["clip"] == clip
 

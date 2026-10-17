@@ -186,9 +186,21 @@ _chapter_tasks: dict[tuple[int, str, str], asyncio.Task] = {}
 _chapter_failed: dict[tuple[int, str, str], float] = {}
 
 
+def clip_is_voice(url: str, voice: str) -> bool:
+    """Whether a saved clip really is in `voice`. Clip files carry their voice in the name, so a
+    record that is labelled with one voice but points at another voice's file is not trusted."""
+    if voice == "charon":
+        return "-elevenlabs-" not in url
+    if voice == "browser":
+        return False
+    return f"-elevenlabs-{voice}" in url
+
+
 def chapter_clip(topic: Topic, voice: str | None, step_id: str) -> dict | None:
-    rec = recording_for(topic, voice)
-    return ((rec or {}).get("clips") or {}).get(step_id)
+    v = pick_voice(voice)
+    rec = recording_for(topic, v)
+    clip = ((rec or {}).get("clips") or {}).get(step_id)
+    return clip if clip and clip_is_voice(clip.get("url", ""), v) else None
 
 
 def chapter_narrating(topic_id: int, voice: str | None, step_id: str) -> bool:

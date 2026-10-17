@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { VoiceOption } from '../api';
+import { speakSample, stopSpeaking } from './samples';
 
 interface Props {
   voices: VoiceOption[];
@@ -18,7 +19,7 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
   const root = useRef<HTMLDivElement>(null);
   const current = voices.find((v) => v.id === selected) ?? voices[0];
 
-  const stopSample = () => { sample.current?.pause(); setPlaying(null); };
+  const stopSample = () => { sample.current?.pause(); stopSpeaking(); setPlaying(null); };
 
   useEffect(() => {
     if (!open) { stopSample(); return; }
@@ -33,8 +34,14 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
   useEffect(() => () => sample.current?.pause(), []);
 
   const play = (v: VoiceOption) => {
-    if (!v.sample_url) return;
     if (playing === v.id) { stopSample(); return; }
+    if (!v.sample_url) {
+      sample.current?.pause();
+      setPlaying(v.id);
+      speakSample(() => setPlaying((p) => (p === v.id ? null : p)));
+      return;
+    }
+    stopSpeaking();
     if (!sample.current) sample.current = new Audio();
     sample.current.src = v.sample_url;
     sample.current.onended = () => setPlaying(null);
@@ -66,12 +73,12 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
               <li key={v.id} className={v.id === current.id ? 'on' : ''}>
                 <button className="pick" type="button" aria-pressed={v.id === current.id} onClick={() => { onChange(v.id); setOpen(false); }}>
                   <b>{v.name}{v.id === voices[0].id ? ' · default' : ''}</b>
+                  {v.badge && <em className="badge">{v.badge}</em>}
                   <span>{v.description}</span>
                 </button>
                 <button
                   className="btn icon ghost"
                   type="button"
-                  disabled={!v.sample_url}
                   onClick={() => play(v)}
                   aria-label={playing === v.id ? `Stop ${v.name} sample` : `Play ${v.name} sample`}
                   title={playing === v.id ? 'Stop sample' : 'Play sample'}

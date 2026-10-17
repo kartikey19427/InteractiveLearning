@@ -1,7 +1,6 @@
-import type { Lesson } from './lesson/types';
-import type { Narration } from './player/LessonPlayer';
+import type { Step } from './lesson/types';
 
-export type LessonStatus = 'queued' | 'researching' | 'writing' | 'checking' | 'ready' | 'failed';
+export type LessonStatus = 'queued' | 'researching' | 'writing' | 'checking' | 'streaming' | 'stalled' | 'ready' | 'failed';
 
 export interface TopicSummary {
   slug: string;
@@ -10,14 +9,27 @@ export interface TopicSummary {
   updated_at: string;
 }
 
+export interface OutlineItem { id: string; kind: string; title: string; tag: string }
+
+/** A lesson without chapter bodies; chapters are fetched one at a time, like a stream. */
+export interface LessonMeta {
+  title: string;
+  eyebrow: string;
+  summary: string;
+  palette?: Record<string, string>;
+  functions?: Record<string, { args: string[]; expr: string }>;
+  sources: { title: string; url: string }[];
+  note?: string | null;
+  outline: OutlineItem[];
+  steps_ready: number;
+  complete: boolean;
+}
+
 export interface TopicDetail extends TopicSummary {
   query: string;
   progress: string | null;
   error: string | null;
-  lesson: Lesson | null;
-  narration: Narration | null;
-  narrating: boolean;
-  narration_state: 'ready' | 'preparing' | 'fallback' | 'none';
+  lesson: LessonMeta | null;
 }
 
 export class ApiError extends Error {
@@ -57,7 +69,7 @@ export function getTopic(slug: string, voice?: string) {
   return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}${q}`);
 }
 
-export interface VoiceOption { id: string; name: string; description: string; sample_url: string | null }
+export interface VoiceOption { id: string; name: string; description: string; sample_url: string | null; badge?: string | null }
 
 export function listVoices() {
   return request<{ default: string | null; voices: VoiceOption[] }>('/voices');
@@ -69,4 +81,22 @@ export function listTopics() {
 
 export function retryTopic(slug: string) {
   return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}/retry`, { method: 'POST' });
+}
+
+export function getStep(slug: string, index: number) {
+  return request<{ ready: boolean; step?: Step; functions?: Record<string, { args: string[]; expr: string }>; stalled?: boolean; error?: string | null }>(
+    `/topics/${encodeURIComponent(slug)}/steps/${index}`,
+  );
+}
+
+export interface ChapterNarration {
+  state: 'ready' | 'preparing' | 'fallback' | 'none';
+  clip: { url: string; bounds: number[] } | null;
+  provider?: string | null;
+  voice?: string | null;
+}
+
+export function getChapterNarration(slug: string, stepId: string, voice?: string) {
+  const q = voice ? `?voice=${encodeURIComponent(voice)}` : '';
+  return request<ChapterNarration>(`/topics/${encodeURIComponent(slug)}/narration/${encodeURIComponent(stepId)}${q}`);
 }

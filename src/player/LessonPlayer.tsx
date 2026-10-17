@@ -56,9 +56,16 @@ export type { NarrationState };
 
 const voiceKey = (n: Narration | null | undefined) => (n ? `${n.provider ?? 'gemini'}:${n.voice}` : null);
 
-export default function LessonPlayer({ lesson, narration: narrationProp, narrationState = 'none', slug, startIndex = 0, voices = [], voiceId = '', onVoiceChange }: {
+export default function LessonPlayer({
+  lesson, narration: narrationProp, narrationState = 'none', slug, startIndex = 0, voices = [], voiceId = '',
+  onVoiceChange, onIndexChange, onRetry, onReadAloudChange,
+}: {
   lesson: Lesson; narration?: Narration | null; narrationState?: NarrationState; slug?: string;
   startIndex?: number; voices?: VoiceOption[]; voiceId?: string; onVoiceChange?: (id: string, atIndex: number) => void;
+  /** The chapter on screen changed, so its content and the next one's can be loaded. */
+  onIndexChange?: (index: number) => void;
+  onRetry?: () => void;
+  onReadAloudChange?: (on: boolean) => void;
 }) {
   // One voice per visit: the first voice that speaks is locked in. Chapters of
   // that same recording keep arriving while it's prepared; any other voice is
@@ -331,6 +338,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
 
   const toggleVoice = (on: boolean) => {
     setVoice(on);
+    onReadAloudChange?.(on);
     live.current.voice = on;
     try { localStorage.setItem('voice', on ? 'on' : 'off'); } catch { /* storage unavailable */ }
     if (!on) { stopVoice(); setNeedsTap(false); }
@@ -348,7 +356,8 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
   const caption =
     step.kind === 'video' ? step.narration[sentence]
       : step.kind === 'quiz' ? `Answer ${step.questions.length} questions to finish the lesson.`
-        : step.caption ?? 'Your turn: try it yourself.';
+        : step.kind === 'pending' ? (step.stalled ? "This chapter couldn't be written yet." : 'Preparing this chapter…')
+          : step.caption ?? 'Your turn: try it yourself.';
 
   const common = {
     frame,
@@ -368,8 +377,13 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
     } catch { /* storage unavailable */ }
   }, [slug, index, done, steps.length, lesson.title]);
 
+  useEffect(() => { onIndexChange?.(index); }, [index, onIndexChange]);
+
   const crumbs = lesson.eyebrow.split('·').map((x) => x.trim()).filter((x) => x && !/^interactive lesson$/i.test(x));
-  const kindLabel = (s: Step) => (s.kind === 'video' ? 'Video' : s.kind === 'quiz' ? 'Quiz' : 'Try it');
+  const kindLabel = (s: Step) => {
+    const k = s.kind === 'pending' ? s.plannedKind : s.kind;
+    return k === 'video' ? 'Video' : k === 'quiz' ? 'Quiz' : 'Try it';
+  };
   // Which voice reads this chapter: the recording's provider, or the browser's own voice.
   const recorded = step.kind === 'video' && !!clipFor(step);
   const voiceName = !recorded ? 'browser'
@@ -440,6 +454,12 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
                 {toast.tone === 'ok' || toast.tone === 'win' ? '✓ ' : toast.tone === 'bad' ? '✗ ' : ''}{toast.text}
               </div>
             )}
+            {step.kind === 'pending' && (
+              <div className="preparing" role="status">
+                {!step.stalled && <span className="spin" aria-hidden="true" />}
+                {step.stalled ? "This chapter couldn't be written yet" : 'Preparing chapter…'}
+              </div>
+            )}
             {waiting && playing && (
               <div className="preparing" role="status"><span className="spin" aria-hidden="true" />Preparing narration…</div>
             )}
@@ -500,6 +520,24 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
           {step.kind === 'process' && <Process step={step} {...common} />}
           {step.kind === 'quiz' && (
             <Quiz step={step} {...common} onRestart={() => { setDone(new Set()); go(0); }} />
+          )}
+          {step.kind === 'pending' && (
+            <>
+              <div className="dock-head"><span className="chip">{kindLabel(step)}</span><h2>{step.title}</h2></div>
+              <div className="dock-body" aria-live="polite">
+                {step.stalled ? (
+                  <>
+                    <p className="intro">Writing stopped before this chapter. The chapters before it are ready to watch.</p>
+                    {onRetry && <div><button className="btn primary" type="button" onClick={onRetry}>Try again</button></div>}
+                  </>
+                ) : (
+                  <>
+                    <p className="intro">This chapter is being prepared. It starts by itself when it's ready.</p>
+                    <div className="ln" style={{ width: '90%' }} /><div className="ln" style={{ width: '75%' }} /><div className="ln" style={{ width: '60%' }} />
+                  </>
+                )}
+              </div>
+            </>
           )}
         </section>
       </div>

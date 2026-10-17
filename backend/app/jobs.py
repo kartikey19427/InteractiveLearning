@@ -16,12 +16,13 @@ from sqlalchemy import select
 
 from .config import get_settings
 from .db import Session, Topic
-from .generator import GenerationError, research, write_lesson
+from .generator import GenerationError, research
+from .streaming import stream_lesson
 from .narration import NarrationError, QuotaExhausted, narrate_lesson, pick_voice, narration_is_current, narrator_target
 
 log = logging.getLogger(__name__)
 
-PENDING = ("queued", "researching", "writing", "checking")
+PENDING = ("queued", "researching", "writing", "checking", "streaming")
 
 _sem = asyncio.Semaphore(get_settings().max_concurrent_jobs)
 # Text-to-speech has a tight per-minute limit, so narrate one lesson at a time.
@@ -54,25 +55,37 @@ async def _run(topic_id: int) -> None:
             if topic is None:
                 return
             title, query = topic.title, topic.query
+            notes, partial = topic.research, topic.lesson
 
         async def progress(msg: str) -> None:
             await _update(topic_id, progress=msg)
 
-        async def writing_progress(msg: str) -> None:
-            # The writer only reports back when it is repairing a draft.
-            await _update(topic_id, status="checking", progress=msg)
+        async def save(lesson: dict) -> None:
+            await _update(topic_id, lesson=lesson)
 
+        async def playable() -> None:
+            # The intro is written: learners can start while later chapters are written ahead of them.
+            await _update(topic_id, status="streaming")
+
+        resume = partial if partial and partial.get("outline") and not partial.get("complete") and notes else None
         try:
-            await _update(topic_id, status="researching", progress="Searching for reliable sources…", error=None)
-            notes, sources = await research(title, query, progress)
-            await _update(topic_id, status="writing", research=notes, progress=f"Read {len(sources)} sources. Designing the lesson…")
-            lesson = await write_lesson(title, query, notes, sources, writing_progress)
+            if resume:
+                sources = resume.get("sources") or []
+                await _update(topic_id, status="streaming" if resume.get("steps") else "writing", error=None)
+            else:
+                await _update(topic_id, status="researching", progress="Searching for reliable sources…", error=None)
+                notes, sources = await research(title, query, progress)
+                await _update(topic_id, status="writing", research=notes, progress=f"Read {len(sources)} sources. Planning the lesson…")
+            lesson = await stream_lesson(title, query, notes, sources, progress, save, playable, resume)
             await _update(topic_id, status="ready", lesson=lesson, progress=None, model=get_settings().model_name)
             log.info("lesson ready: %s", title)
-            enqueue_narration(topic_id)
         except GenerationError as e:
-            # Includes missing keys and provider outages, each with a readable message.
-            await _update(topic_id, status="failed", error=str(e), progress=None)
+            # Includes missing keys and provider outages, each with a readable message. Chapters
+            # already written stay playable; Retry carries on from where it stopped.
+            async with Session() as s:
+                t = await s.get(Topic, topic_id)
+                started = bool(t and t.lesson and t.lesson.get("steps"))
+            await _update(topic_id, status="stalled" if started else "failed", error=str(e), progress=None)
         except Exception:
             log.exception("lesson generation failed for topic %s", topic_id)
             await _update(topic_id, status="failed", progress=None, error="Something went wrong while building this lesson.")
@@ -165,6 +178,72 @@ def narration_blocked(topic_id: int, voice: str | None = None) -> bool:
     """This voice recently failed (or ran out) for this lesson, so the fallback plays for now."""
     now = time.time()
     return now < _quota_until or now - _narration_failed.get((topic_id, pick_voice(voice)), 0) < 1800
+
+
+# ---------- per-chapter narration (on demand, like streaming) ----------
+
+_chapter_tasks: dict[tuple[int, str, str], asyncio.Task] = {}
+_chapter_failed: dict[tuple[int, str, str], float] = {}
+
+
+def chapter_clip(topic: Topic, voice: str | None, step_id: str) -> dict | None:
+    rec = recording_for(topic, voice)
+    return ((rec or {}).get("clips") or {}).get(step_id)
+
+
+def chapter_narrating(topic_id: int, voice: str | None, step_id: str) -> bool:
+    task = _chapter_tasks.get((topic_id, pick_voice(voice), step_id))
+    return task is not None and not task.done()
+
+
+def chapter_blocked(topic_id: int, voice: str | None, step_id: str) -> bool:
+    now = time.time()
+    return now < _quota_until or now - _chapter_failed.get((topic_id, pick_voice(voice), step_id), 0) < 1800
+
+
+def enqueue_chapter(topic_id: int, voice: str | None, step_id: str) -> None:
+    """Record one chapter in one voice, once. Called for the chapter playing and the next one only."""
+    v = pick_voice(voice)
+    key = (topic_id, v, step_id)
+    if chapter_narrating(topic_id, v, step_id) or not get_settings().narrator or chapter_blocked(topic_id, v, step_id):
+        return
+    task = asyncio.create_task(_narrate_chapter(topic_id, v, step_id))
+    _chapter_tasks[key] = task
+    task.add_done_callback(lambda _: _chapter_tasks.pop(key, None))
+
+
+async def _narrate_chapter(topic_id: int, voice: str, step_id: str) -> None:
+    key = (topic_id, voice, step_id)
+    async with _tts:  # one recording at a time; requests queue in the order they were made
+        async with Session() as s:
+            topic = await s.get(Topic, topic_id)
+            if topic is None or not topic.lesson or chapter_clip(topic, voice, step_id):
+                return
+            step = next((st for st in topic.lesson.get("steps") or [] if st.get("id") == step_id), None)
+            slug = topic.slug
+        if step is None or step.get("kind") != "video":
+            return
+        try:
+            rec = await narrate_chapter(slug, step, voice)
+        except (NarrationError, httpx.HTTPError) as e:
+            _chapter_failed[key] = time.time()
+            log.warning("chapter narration failed for %s/%s: %s", slug, step_id, e)
+            return
+        async with Session() as s:
+            topic = await s.get(Topic, topic_id)
+            if topic is None:
+                return
+            if rec["provider"] == "elevenlabs" or voice == "charon":
+                # Chosen voice: saved per voice, once.
+                saved = (topic.voices or {}).get(voice) or {"provider": rec["provider"], "voice": voice, "model": rec["model"], "clips": {}}
+                saved = {**saved, "clips": {**(saved.get("clips") or {}), step_id: rec["clip"]}}
+                topic.voices = {**(topic.voices or {}), voice: saved}
+            else:
+                # Fallback voice: kept as the stand-in; the chosen voice is tried again later.
+                fb = topic.narration if (topic.narration or {}).get("provider") == rec["provider"] else {"provider": rec["provider"], "voice": rec["voice"], "model": rec["model"], "clips": {}}
+                topic.narration = {**fb, "clips": {**(fb.get("clips") or {}), step_id: rec["clip"]}}
+                _chapter_failed[key] = time.time()
+            await s.commit()
 
 
 async def resume_pending() -> None:

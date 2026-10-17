@@ -4,6 +4,7 @@ import { listVoices, type VoiceOption } from '../api';
 // One shared voice choice for every picker on the page (top-bar menu, home
 // cards), remembered in this browser. Max (the server's default) until changed.
 let voices: VoiceOption[] = [];
+// Free options are offered alongside the ElevenLabs voices; none of them calls ElevenLabs.
 let voiceId: string = (() => { try { return localStorage.getItem('voiceId') ?? ''; } catch { return ''; } })();
 let loaded = false;
 const listeners = new Set<() => void>();

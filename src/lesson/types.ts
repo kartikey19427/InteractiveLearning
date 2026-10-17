@@ -272,7 +272,18 @@ export interface QuizStep {
   scene?: Omit<Scene, 'duration'>;
 }
 
-export type Step = VideoStep | SimulationStep | MatchStep | ProcessStep | QuizStep;
+/** A chapter that isn't loaded yet (still being written, or not fetched). */
+export interface PendingStep {
+  kind: 'pending';
+  id: string;
+  title: string;
+  tag: string;
+  plannedKind: string;
+  /** Writing stopped with an error before this chapter. */
+  stalled?: boolean;
+}
+
+export type Step = VideoStep | SimulationStep | MatchStep | ProcessStep | QuizStep | PendingStep;
 
 export interface Lesson {
   title: string;

@@ -215,9 +215,22 @@ VOICES = [
 ]
 
 
+# Free options: they never call ElevenLabs. "browser" uses the learner's own voice
+# and makes no API calls at all; "charon" is Gemini's voice (free tier, daily limit).
+FREE_VOICES = [
+    {"id": "browser", "name": "Browser voice", "description": "Free, no credits. Uses this browser's own voice.", "badge": "Free, no credits"},
+    {"id": "charon", "name": "Charon", "description": "Gemini's narrator. Free tier, limited daily.", "badge": "Free tier, limited daily"},
+]
+FREE_IDS = {v["id"] for v in FREE_VOICES}
+
+
+def is_free(voice: str | None) -> bool:
+    return voice in FREE_IDS
+
+
 def pick_voice(voice: str | None) -> str:
     """A voice from the menu, or the default when none (or an unknown one) is asked for."""
-    if voice and any(v["id"] == voice for v in VOICES):
+    if voice in FREE_IDS or (voice and any(v["id"] == voice for v in VOICES)):
         return voice
     return get_settings().elevenlabs_voice_id
 
@@ -225,6 +238,10 @@ def pick_voice(voice: str | None) -> str:
 def narrator_target(voice: str | None = None) -> tuple[str, str] | None:
     """The (provider, voice) new recordings are made with, or None when no narrator is configured."""
     settings = get_settings()
+    if voice == "browser":
+        return None  # the browser's own voice: nothing is recorded
+    if voice == "charon":
+        return ("gemini", settings.tts_voice) if settings.gemini_api_key else None
     if settings.elevenlabs_api_key:
         return "elevenlabs", pick_voice(voice)
     if settings.gemini_api_key:
@@ -351,3 +368,32 @@ async def _narrate_gemini(slug: str, videos: list[dict], out_dir: Path) -> dict:
         clips[st["id"]] = {"url": f"/api/media/narration/{slug}/{name}", "bounds": [round(b, 3) for b in bounds]}
         log.info("narrated %s/%s (%.1fs)", slug, st["id"], bounds[-1])
     return {"provider": "gemini", "voice": settings.tts_voice, "model": settings.tts_model, "clips": clips}
+
+
+async def narrate_chapter(slug: str, step: dict, voice: str | None = None) -> dict:
+    """Record one chapter (on demand, when it's about to play). ElevenLabs first, then Gemini.
+
+    Returns {"provider", "voice", "model", "clip"}; errors go up when neither works,
+    and the chapter plays with the browser voice.
+    """
+    settings = get_settings()
+    if not settings.narrator:
+        raise NarrationError("no text-to-speech API key")
+    out_dir = MEDIA / "narration" / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if voice == "charon":
+        # Charon is chosen on purpose: Gemini only, and no ElevenLabs call at all.
+        if not settings.gemini_api_key:
+            raise NarrationError("no Gemini key")
+        rec = await _narrate_gemini(slug, [step], out_dir)
+        return {**{k: rec[k] for k in ("provider", "voice", "model")}, "clip": rec["clips"][step["id"]]}
+    if settings.elevenlabs_api_key:
+        try:
+            rec = await _narrate_eleven(slug, [step], out_dir, None, voice)
+            return {**{k: rec[k] for k in ("provider", "voice", "model")}, "clip": rec["clips"][step["id"]]}
+        except (NarrationError, httpx.HTTPError) as e:
+            log.warning("ElevenLabs failed for %s/%s, using Gemini instead: %s", slug, step.get("id"), e)
+            if not settings.gemini_api_key:
+                raise
+    rec = await _narrate_gemini(slug, [step], out_dir)
+    return {**{k: rec[k] for k in ("provider", "voice", "model")}, "clip": rec["clips"][step["id"]]}

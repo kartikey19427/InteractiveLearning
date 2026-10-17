@@ -1,42 +1,43 @@
-"""Which voice a lesson plays: Max when it works, older voices only when it doesn't."""
+"""Which voice a chapter plays: the chosen ElevenLabs voice when it works, older voices only when it doesn't."""
 
+import asyncio
 from types import SimpleNamespace
 
 import app.main as main
 
-LESSON = {"steps": [{"kind": "video", "id": "a", "narration": ["One.", "Two."]}]}
-MAX = ("elevenlabs", "max")
+MAX = "Gfpl8Yo74Is0W6cPUWWT"
+STEP = {"kind": "video", "id": "a", "narration": ["One.", "Two."]}
 
 
-def topic(narration):
-    return SimpleNamespace(id=1, status="ready", lesson=LESSON, narration=narration, voices=None)
+def topic(narration=None, voices=None):
+    return SimpleNamespace(id=1, status="ready", lesson={"steps": [STEP]}, narration=narration, voices=voices)
 
 
-def setup(monkeypatch, narrating=False, partial=None):
-    monkeypatch.setattr(main, "narrator_target", lambda voice=None: MAX)
-    import app.narration as narration
-    monkeypatch.setattr(narration, "narrator_target", lambda voice=None: MAX)
-    monkeypatch.setattr(main.jobs, "narrating", lambda _id, voice=None: narrating)
-    monkeypatch.setattr(main.jobs, "partial_narration", lambda _id, voice=None: partial)
+def call(monkeypatch, t, narrating=False, enqueued=None):
+    async def fake_topic(_s, _slug):
+        return t
+    monkeypatch.setattr(main, "_topic", fake_topic)
+    monkeypatch.setattr(main, "narrator_target", lambda v=None: ("elevenlabs", MAX))
+    monkeypatch.setattr(main.jobs, "enqueue_chapter", lambda *a: enqueued.append(a) if enqueued is not None else None)
+    monkeypatch.setattr(main.jobs, "chapter_narrating", lambda *a: narrating)
+    return asyncio.run(main.get_chapter_narration("slug", "a", MAX, None))
 
 
-def test_saved_max_recording_plays(monkeypatch):
-    setup(monkeypatch)
-    rec = {"provider": "elevenlabs", "voice": "max", "clips": {}}
-    monkeypatch.setattr(main.jobs, "recording_for", lambda t, v=None: t.narration if t.narration.get("provider") == "elevenlabs" else None)
-    assert main._narration_view(topic(rec)) == {"narration": rec, "narration_state": "ready"}
+def test_saved_chapter_plays(monkeypatch):
+    clip = {"url": "u", "bounds": [1, 2]}
+    r = call(monkeypatch, topic(voices={MAX: {"provider": "elevenlabs", "voice": MAX, "clips": {"a": clip}}}))
+    assert r["state"] == "ready" and r["clip"] == clip
 
 
-def test_old_voice_is_not_played_while_max_is_being_recorded(monkeypatch):
-    partial = {"provider": "elevenlabs", "voice": "max", "clips": {"a": {"url": "x", "bounds": [1, 2]}}, "complete": False}
-    setup(monkeypatch, narrating=True, partial=partial)
+def test_missing_chapter_is_recorded_on_demand_and_old_voice_not_played(monkeypatch):
+    enqueued = []
     charon = {"provider": "gemini", "voice": "Charon", "clips": {"a": {"url": "old", "bounds": [1, 2]}}}
-    view = main._narration_view(topic(charon))
-    assert view["narration_state"] == "preparing"
-    assert view["narration"] is partial  # never the old Charon audio
+    r = call(monkeypatch, topic(narration=charon), narrating=True, enqueued=enqueued)
+    assert enqueued == [(1, MAX, "a")]
+    assert r == {"state": "preparing", "clip": None}
 
 
-def test_old_voice_stands_in_only_after_max_fails(monkeypatch):
-    setup(monkeypatch, narrating=False)
-    charon = {"provider": "gemini", "voice": "Charon", "clips": {}}
-    assert main._narration_view(topic(charon)) == {"narration": charon, "narration_state": "fallback"}
+def test_old_voice_stands_in_only_after_the_chosen_voice_fails(monkeypatch):
+    charon = {"provider": "gemini", "voice": "Charon", "clips": {"a": {"url": "old", "bounds": [1, 2]}}}
+    r = call(monkeypatch, topic(narration=charon), narrating=False, enqueued=[])
+    assert r["state"] == "fallback" and r["clip"]["url"] == "old"

@@ -5,6 +5,7 @@ import VoiceMenu from '../components/VoiceMenu';
 import { useVoiceChoice } from '../components/useVoiceChoice';
 import LessonPlayer from '../player/LessonPlayer';
 import TopBar from '../components/TopBar';
+import { useLessonStream } from './useLessonStream';
 
 const STAGES: { key: LessonStatus; label: string }[] = [
   { key: 'researching', label: 'Researching sources' },
@@ -65,24 +66,21 @@ export default function TopicPage() {
   const [resumeAt, setResumeAt] = useState(0);
   const changeVoice = (id: string, atIndex: number) => {
     setResumeAt(atIndex);
-    // Drop the old voice's audio until the new voice's state arrives, so the player waits for it.
-    setTopic((prev) => (prev ? { ...prev, narration: null, narration_state: 'preparing' } : prev));
     choose(id);
   };
+  const [voiceOn, setVoiceOn] = useState(() => { try { return localStorage.getItem('voice') !== 'off'; } catch { return true; } });
 
   useEffect(() => {
     let alive = true;
     let timer = 0;
     const load = async () => {
       try {
-        const t = await getTopic(slug, voiceId || undefined);
+        const t = await getTopic(slug);
         if (!alive) return;
-        // Don't remount the player when only narration changes.
-        setTopic((prev) => (prev && prev.slug === t.slug && prev.lesson && t.lesson ? { ...t, lesson: prev.lesson } : t));
+        setTopic(t);
         setError(null);
-        if (t.status !== 'ready' && t.status !== 'failed') timer = window.setTimeout(load, 2500);
-        // The preferred voice is being recorded chapter by chapter: keep picking up new chapters.
-        else if (t.status === 'ready' && t.narration_state === 'preparing') timer = window.setTimeout(load, 2000);
+        // Keep checking while it's being built (including while later chapters are still written).
+        if (t.status !== 'ready' && t.status !== 'failed' && t.status !== 'stalled') timer = window.setTimeout(load, 3000);
       } catch (err) {
         if (!alive) return;
         setError(err instanceof ApiError && err.status === 404 ? 'There is no lesson for this topic yet.' : 'Could not reach the server.');
@@ -92,7 +90,9 @@ export default function TopicPage() {
     setTopic((prev) => (prev && prev.slug === slug ? prev : null));
     void load();
     return () => { alive = false; clearTimeout(timer); };
-  }, [slug, attempt, voiceId]);
+  }, [slug, attempt]);
+
+  const stream = useLessonStream(slug, topic?.lesson ?? null, voiceId, voiceOn);
 
   useEffect(() => {
     if (topic?.title) document.title = `${topic.title} · Interactive Learning`;
@@ -107,18 +107,22 @@ export default function TopicPage() {
     }
   };
 
-  if (topic?.status === 'ready' && topic.lesson) {
+  const playable = !!topic?.lesson && (topic.status === 'ready' || topic.status === 'streaming' || topic.status === 'stalled');
+  if (playable && stream.lesson) {
     return (
       <LessonPlayer
         key={voiceId}
-        lesson={topic.lesson}
-        narration={topic.narration}
-        narrationState={topic.narration_state}
-        slug={topic.slug}
+        lesson={stream.lesson}
+        narration={stream.narration}
+        narrationState={stream.narrationState}
+        slug={slug}
         startIndex={resumeAt}
         voices={voices}
         voiceId={voiceId}
         onVoiceChange={changeVoice}
+        onIndexChange={stream.setIndex}
+        onRetry={retry}
+        onReadAloudChange={setVoiceOn}
       />
     );
   }

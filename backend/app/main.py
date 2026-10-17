@@ -15,7 +15,7 @@ from . import jobs
 from .config import get_settings
 from .db import AsyncSession, Topic, TopicAlias, get_session, init_db
 from .generator import GenerationError, MissingCredentials, ProviderUnavailable, name_topic
-from .narration import MEDIA, VOICES, narration_is_current, narrator_target, pick_voice
+from .narration import FREE_VOICES, MEDIA, VOICES, narrator_target, pick_voice
 from .slugs import query_key, slugify
 
 logging.basicConfig(level=logging.INFO)
@@ -63,43 +63,40 @@ class TopicDetail(TopicSummary):
     query: str
     progress: str | None
     error: str | None
+    # The lesson without chapter bodies: title, palette, sources and an outline of
+    # chapters (with which ones are written). Chapters are fetched one at a time
+    # from /steps/{i}, like a video stream; narration from /narration/{step_id}.
     lesson: dict | None
-    narration: dict | None
-    # True while recorded narration is being made; the page keeps polling until it lands.
-    narrating: bool = False
-    # ready: play `narration`. preparing: the preferred voice is being recorded; play its
-    # chapters as they appear in `narration`. fallback/none: play `narration` if any
-    # (an older voice), else the browser voice.
-    narration_state: str = "none"
+
+
+PLAYABLE = ("ready", "streaming", "stalled")
+
+
+def lesson_meta(lesson: dict | None) -> dict | None:
+    if not lesson:
+        return None
+    steps = lesson.get("steps") or []
+    outline = lesson.get("outline") or [
+        {"id": st.get("id"), "kind": st.get("kind"), "title": st.get("title"), "tag": st.get("tag")} for st in steps
+    ]
+    return {
+        **{k: lesson.get(k) for k in ("title", "eyebrow", "summary", "palette", "functions", "sources", "note")},
+        "outline": [{k: o.get(k) for k in ("id", "kind", "title", "tag")} for o in outline],
+        "steps_ready": len(steps),
+        "complete": lesson.get("complete", True) if lesson.get("outline") else True,
+    }
 
 
 def _summary(t: Topic) -> TopicSummary:
     return TopicSummary(slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at)
 
 
-def _detail(t: Topic, voice: str | None = None) -> TopicDetail:
+def _detail(t: Topic) -> TopicDetail:
     return TopicDetail(
         slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
         query=t.query, progress=t.progress, error=t.error,
-        lesson=t.lesson if t.status == "ready" else None,
-        narrating=jobs.narrating(t.id, voice),
-        **_narration_view(t, voice),
+        lesson=lesson_meta(t.lesson) if t.status in PLAYABLE else None,
     )
-
-
-def _narration_view(t: Topic, voice: str | None = None) -> dict:
-    """Which recording the player should use: the chosen voice, its chapters so far, or a fallback."""
-    if t.status != "ready" or not t.lesson:
-        return {"narration": None, "narration_state": "none"}
-    if narrator_target(voice) is None:
-        return {"narration": t.narration, "narration_state": "none"}
-    rec = jobs.recording_for(t, voice) or t.narration
-    if narration_is_current(rec, t.lesson, voice):
-        return {"narration": rec, "narration_state": "ready"}
-    if jobs.narrating(t.id, voice):
-        return {"narration": jobs.partial_narration(t.id, voice), "narration_state": "preparing"}
-    # The preferred voice failed recently: an older recording, if any, stands in.
-    return {"narration": t.narration, "narration_state": "fallback"}
 
 
 async def _add_alias(session: AsyncSession, alias: str, topic_id: int) -> None:
@@ -172,15 +169,62 @@ async def list_topics(session: AsyncSession = Depends(get_session)):
 
 
 @app.get("/api/topics/{slug}", response_model=TopicDetail)
-async def get_topic(slug: str, voice: str | None = None, session: AsyncSession = Depends(get_session)):
+async def get_topic(slug: str, session: AsyncSession = Depends(get_session)):
     topic = await session.scalar(select(Topic).where(Topic.slug == slug))
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
-    if topic.status == "ready" and not narration_is_current(jobs.recording_for(topic, voice) or topic.narration, topic.lesson or {}, voice):
-        # Opening a lesson records it with the preferred voice (once, never in bulk). The player
-        # waits for it chapter by chapter and only uses an older voice if recording fails.
-        jobs.enqueue_narration(topic.id, voice)
-    return _detail(topic, voice)
+    return _detail(topic)
+
+
+async def _topic(session: AsyncSession, slug: str) -> Topic:
+    topic = await session.scalar(select(Topic).where(Topic.slug == slug))
+    if topic is None or not topic.lesson:
+        raise HTTPException(404, "No lesson for this topic yet.")
+    return topic
+
+
+@app.get("/api/topics/{slug}/steps/{index}")
+async def get_step(slug: str, index: int, session: AsyncSession = Depends(get_session)):
+    """One chapter's content. `ready: false` while it's still being written."""
+    topic = await _topic(session, slug)
+    steps = topic.lesson.get("steps") or []
+    if 0 <= index < len(steps):
+        return {"ready": True, "step": steps[index], "functions": topic.lesson.get("functions") or {}}
+    total = len(topic.lesson.get("outline") or steps)
+    if not 0 <= index < total:
+        raise HTTPException(404, "No such chapter.")
+    return {"ready": False, "stalled": topic.status in ("stalled", "failed"), "error": topic.error}
+
+
+@app.get("/api/topics/{slug}/narration/{step_id}")
+async def get_chapter_narration(slug: str, step_id: str, voice: str | None = None, session: AsyncSession = Depends(get_session)):
+    """One chapter's recorded narration in `voice`, recording it now (once) if it isn't saved.
+
+    state: ready (play `clip`), preparing (being recorded: wait), fallback (the chosen
+    voice isn't working: play `clip` if it's an older voice's, else the browser voice),
+    none (no voice service set up: browser voice).
+    """
+    topic = await _topic(session, slug)
+    v = pick_voice(voice)
+    if v == "browser" or narrator_target(v) is None:
+        return {"state": "none", "clip": None}
+    clip = jobs.chapter_clip(topic, v, step_id)
+    if clip:
+        return {"state": "ready", "clip": clip, "provider": narrator_target(v)[0], "voice": v}
+    if v == "charon" and jobs.chapter_blocked(topic.id, v, step_id):
+        # Charon failed for this chapter: straight to the browser voice, never ElevenLabs.
+        return {"state": "fallback", "clip": None}
+    step = next((st for st in topic.lesson.get("steps") or [] if st.get("id") == step_id), None)
+    if step is not None and step.get("kind") == "video":
+        jobs.enqueue_chapter(topic.id, v, step_id)
+        if jobs.chapter_narrating(topic.id, v, step_id):
+            return {"state": "preparing", "clip": None}
+    elif step is None:
+        return {"state": "preparing", "clip": None}  # not written yet
+    if v == "charon":
+        return {"state": "fallback", "clip": None}
+    fb = topic.narration or {}
+    return {"state": "fallback", "clip": (fb.get("clips") or {}).get(step_id), "provider": fb.get("provider"), "voice": fb.get("voice")}
 
 
 @app.get("/api/voices")
@@ -192,7 +236,8 @@ async def list_voices():
         return {"default": None, "voices": []}
     return {
         "default": pick_voice(None),
-        "voices": [{**v, "sample_url": f"/voice-samples/{v['id']}.mp3"} for v in VOICES],
+        "voices": [{**v, "badge": None, "sample_url": f"/voice-samples/{v['id']}.mp3"} for v in VOICES]
+        + [{**v, "sample_url": ("/voice-samples/charon.wav" if v["id"] == "charon" else None)} for v in FREE_VOICES],
     }
 
 
@@ -201,7 +246,7 @@ async def retry_topic(slug: str, session: AsyncSession = Depends(get_session)):
     topic = await session.scalar(select(Topic).where(Topic.slug == slug))
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
-    if topic.status == "failed":
+    if topic.status in ("failed", "stalled"):
         topic.status, topic.error, topic.progress = "queued", None, "Waiting to start…"
         await session.commit()
         jobs.enqueue(topic.id)

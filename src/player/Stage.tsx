@@ -52,7 +52,7 @@ export default function Stage({ frame, palette, tag, overlayRef, overlayActive, 
         ctx.setLineDash([]);
         ctx.fillStyle = f?.background ?? DEFAULT_BG;
         ctx.fillRect(0, 0, STAGE_W, STAGE_H);
-        f?.draw({ ctx, k, palette: paletteRef.current });
+        f?.draw({ ctx, k, palette: paletteRef.current, placed: [] });
       } catch (err) {
         console.error('Stage frame failed', err);
       }

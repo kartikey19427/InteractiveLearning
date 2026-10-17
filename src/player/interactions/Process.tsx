@@ -15,7 +15,7 @@ function svgPoint(svg: SVGSVGElement, e: { clientX: number; clientY: number }) {
 
 // A fixed sequence of actions (drag two things together, press buttons) with
 // the scene advancing one stage per completed action.
-export default function Process({ step, frame, overlay, baseEnv, onGoal, onNext, completed }: StepProps<ProcessStep>) {
+export default function Process({ step, frame, overlay, baseEnv, onGoal, onNext, completed, notify }: StepProps<ProcessStep>) {
   const palette = { ...DEFAULT_PALETTE, ...(baseEnv.palette as Record<string, string> | undefined) };
   const [stage, setStage] = useState(0);
   const [verdict, setVerdict] = useState<{ text: string; tone: '' | 'ok' | 'no' }>({ text: step.prompt, tone: '' });
@@ -46,6 +46,7 @@ export default function Process({ step, frame, overlay, baseEnv, onGoal, onNext,
     const s = step.steps[i];
     setStage(i + 1);
     setVerdict({ text: s.done, tone: 'ok' });
+    notify(i === step.steps.length - 1 ? step.goal.note : s.done, i === step.steps.length - 1 ? 'win' : 'ok');
     if (i === step.steps.length - 1) {
       setGoalNote(step.goal.note);
       onGoalRef.current();
@@ -55,7 +56,7 @@ export default function Process({ step, frame, overlay, baseEnv, onGoal, onNext,
   const press = (i: number) => {
     if (i === stage) { complete(i); return; }
     const early = step.steps[i].early;
-    if (i > stage && early) setVerdict({ text: early, tone: 'no' });
+    if (i > stage && early) { setVerdict({ text: early, tone: 'no' }); notify(early, 'bad'); }
   };
 
   const restart = () => {

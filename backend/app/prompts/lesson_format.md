@@ -128,7 +128,7 @@ The learner drags one token onto another; rules over the pair decide what happen
   "scene": { "elements": [ ...background only... ] } }
 ```
 
-`a` is the dragged token and `b` the target; each exposes its `attrs` plus `label` and `id`. `{expr}` in `text`/`resultLabel` is filled in. 3–6 tokens, radius 50 each, placed at least 140 px apart within x 80–720, y 80–330. Successful pairs merge and disappear, so make sure at least `goal.successes` disjoint successful pairs exist. Unsuccessful text should explain why.
+`a` is the dragged token and `b` the target; each exposes its `attrs` plus `label` and `id`. `{expr}` in `text`/`resultLabel` is filled in. 3–6 tokens. The player lays tokens out itself: your `x` only decides the column (give items one x, e.g. 200, and targets another, e.g. 600) and `y` the order within it. Token labels at most 24 characters; `resultLabel` short (it shows as a chip in a tray, e.g. "{a.label} → {b.label}"). Successful pairs merge into the tray, so make sure at least `goal.successes` disjoint successful pairs exist. Rule `text` is shown to the learner as instant feedback: for a wrong pair say briefly why it's wrong (one sentence), for a right pair confirm the reason.
 
 ### process — ordered actions
 

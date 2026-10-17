@@ -156,9 +156,13 @@ def _count_labels(elements) -> int:
 
 
 def _label_problems(raw: dict) -> list[str]:
-    """Unlabeled scenes are hard to follow; ask for labels like a reviewer would."""
+    """Unlabeled scenes and long token labels are hard to follow; ask for fixes like a reviewer would."""
     out = []
     for i, step in enumerate(raw.get("steps") or []):
+        if isinstance(step, dict) and step.get("kind") == "match":
+            for t in step.get("tokens") or []:
+                if isinstance(t, dict) and len(str(t.get("label", ""))) > 28:
+                    out.append(f"steps.{i}.tokens.{t.get('id')}: label {t.get('label')!r} is too long; keep it under 24 characters.")
         if isinstance(step, dict) and step.get("kind") == "video":
             need = max(3, len(step.get("narration") or []))
             have = _count_labels((step.get("scene") or {}).get("elements"))

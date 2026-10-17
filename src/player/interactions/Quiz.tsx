@@ -3,7 +3,7 @@ import type { QuizStep } from '../../lesson/types';
 import { drawElements } from '../../lesson/scene';
 import type { StepProps } from '../LessonPlayer';
 
-export default function Quiz({ step, frame, baseEnv, onGoal, onRestart }: StepProps<QuizStep> & { onRestart: () => void }) {
+export default function Quiz({ step, frame, baseEnv, onGoal, onRestart, notify }: StepProps<QuizStep> & { onRestart: () => void }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
@@ -36,12 +36,13 @@ export default function Quiz({ step, frame, baseEnv, onGoal, onRestart }: StepPr
   const choose = (k: number) => {
     if (picked !== null) return;
     setPicked(k);
-    if (k === q.answer) setScore((s) => s + 1);
+    if (k === q.answer) { setScore((s) => s + 1); notify('Correct!', 'ok'); }
+    else notify('Not quite. The right answer is highlighted in green.', 'bad');
   };
 
   const next = () => {
     if (i < step.questions.length - 1) { setI(i + 1); setPicked(null); }
-    else { setFinished(true); onGoal(); }
+    else { setFinished(true); onGoal(); notify(`Lesson complete: ${score} of ${step.questions.length} correct`, 'win'); }
   };
 
   return (

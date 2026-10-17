@@ -11,6 +11,8 @@ export interface RenderCtx {
   /** Canvas CSS width / 800; keeps label text a readable size on small screens. */
   k: number;
   palette: Record<string, string>;
+  /** Label boxes drawn so far this frame (device pixels), so later labels can step aside. */
+  placed?: [number, number, number, number][];
 }
 
 const TAU = Math.PI * 2;
@@ -125,8 +127,46 @@ export function labelSize(k: number) {
   return clamp(13 / k, 12, 30);
 }
 
-export function drawLabel(rc: RenderCtx, text: string, x: number, y: number, o: { color?: string; bg?: boolean; align?: CanvasTextAlign; size?: number; weight?: number } = {}) {
+type LabelOpts = { color?: string; bg?: boolean; align?: CanvasTextAlign; size?: number; weight?: number; placed?: boolean };
+
+function labelBox(rc: RenderCtx, text: string, x: number, o: LabelOpts) {
+  const fs = labelSize(rc.k) * (o.size ?? 1);
+  rc.ctx.font = `${o.weight ?? 600} ${fs}px "Source Sans 3", system-ui, sans-serif`;
+  const w = rc.ctx.measureText(text).width + 12;
+  const x0 = (o.align === 'left' ? x : o.align === 'right' ? x - w + 12 : x - w / 2 + 6) - 6;
+  return { fs, x0, w, h: fs * 1.6 };
+}
+
+/**
+ * Find a y for a label that doesn't cover a label already drawn this frame,
+ * stepping down then up by one line at a time. Generated scenes often put two
+ * labels at nearly the same spot; this keeps them readable.
+ */
+export function placeLabel(rc: RenderCtx, text: string, x: number, y: number, o: LabelOpts = {}): number {
+  const placed = rc.placed;
+  if (!placed || rc.ctx.globalAlpha < 0.25) return y;
+  const { x0, w, h } = labelBox(rc, text, x, o);
+  const m = rc.ctx.getTransform();
+  const toDevice = (yy: number): [number, number, number, number] => {
+    const ax = m.a * x0 + m.e, ay = m.d * (yy - h / 2) + m.f;
+    return [ax, ay, ax + m.a * w, ay + m.d * h];
+  };
+  const hits = (b: [number, number, number, number]) =>
+    placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+  const offsets = [0, 1, -1, 2, -2, 3, -3];
+  let best = y;
+  for (const k of offsets) {
+    const yy = y + k * (h + 2);
+    if (yy - h / 2 < 0 || yy + h / 2 > STAGE_H) continue;
+    if (!hits(toDevice(yy))) { best = yy; break; }
+  }
+  placed.push(toDevice(best));
+  return best;
+}
+
+export function drawLabel(rc: RenderCtx, text: string, x: number, y0: number, o: LabelOpts = {}) {
   const { ctx } = rc;
+  const y = o.placed ? y0 : placeLabel(rc, text, x, y0, o);
   const fs = labelSize(rc.k) * (o.size ?? 1);
   ctx.font = `${o.weight ?? 600} ${fs}px "Source Sans 3", system-ui, sans-serif`;
   ctx.textAlign = o.align ?? 'center';
@@ -134,11 +174,12 @@ export function drawLabel(rc: RenderCtx, text: string, x: number, y: number, o: 
   if (o.bg) {
     const m = ctx.measureText(text).width;
     const x0 = o.align === 'left' ? x : o.align === 'right' ? x - m : x - m / 2;
-    ctx.fillStyle = 'rgba(15,25,20,.75)';
+    ctx.fillStyle = 'rgba(15,25,20,.78)';
     ctx.fillRect(x0 - 6, y - fs * 0.8, m + 12, fs * 1.6);
   }
   ctx.fillStyle = o.color ?? '#E8F0E6';
   ctx.fillText(text, x, y);
+  return y;
 }
 
 function drawNetwork(rc: RenderCtx, el: NetworkEl, env: Env) {
@@ -333,9 +374,10 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
       });
       break;
     case 'callout': {
-      const x = num(el.x, env), y = num(el.y, env), lx = num(el.lx, env), ly = num(el.ly, env);
+      const x = num(el.x, env), y = num(el.y, env), lx = num(el.lx, env);
       const col = color(el.color, env, rc.palette) ?? '#E8F0E6';
       const text = str(el.text, env);
+      const ly = placeLabel(rc, text, lx, num(el.ly, env), { bg: true });
       const fs = labelSize(rc.k);
       ctx.font = `600 ${fs}px "Source Sans 3", system-ui, sans-serif`;
       const half = ctx.measureText(text).width / 2 + 6;
@@ -352,7 +394,7 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
       ctx.arc(x, y, 3.5, 0, TAU);
       ctx.fillStyle = col;
       ctx.fill();
-      drawLabel(rc, text, lx, ly, { color: col, bg: true });
+      drawLabel(rc, text, lx, ly, { color: col, bg: true, placed: true });
       break;
     }
     case 'network': drawNetwork(rc, el, env); break;

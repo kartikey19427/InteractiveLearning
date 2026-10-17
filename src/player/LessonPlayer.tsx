@@ -52,7 +52,11 @@ export interface StepProps<S extends Step> {
   onGoal: () => void;
   onNext: () => void;
   completed: boolean;
+  /** Show a short message over the stage, where the learner is looking. */
+  notify: (text: string, tone: Tone) => void;
 }
+
+export type Tone = 'ok' | 'bad' | 'info' | 'win';
 
 export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
   const steps = lesson.steps;
@@ -72,6 +76,13 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
   });
   // Browsers refuse speech until the page has had a click; then we ask for one.
   const [needsTap, setNeedsTap] = useState(false);
+  const [toast, setToast] = useState<{ text: string; tone: Tone; key: number } | null>(null);
+  const toastTimer = useRef(0);
+  const notify = useCallback((text: string, tone: Tone) => {
+    clearTimeout(toastTimer.current);
+    setToast({ text, tone, key: Date.now() });
+    toastTimer.current = window.setTimeout(() => setToast(null), tone === 'win' ? 4200 : 2800);
+  }, []);
   const [sentence, setSentence] = useState(0);
   const [done, setDone] = useState<Set<number>>(() => new Set());
   const [overlay, setOverlay] = useState<SVGSVGElement | null>(null);
@@ -138,6 +149,7 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
     setSentence(0);
     setIndex(n);
     setVisit((v) => v + 1);
+    setToast(null);
     if (steps[n].kind === 'video' && !reducedMotion) setPlaying(true);
   }, [steps]);
 
@@ -241,6 +253,7 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
     baseEnv,
     onGoal: () => markDone(index),
     onNext: () => go(index + 1),
+    notify,
     completed: done.has(index),
   };
 
@@ -261,6 +274,11 @@ export default function LessonPlayer({ lesson }: { lesson: Lesson }) {
           overlayRef={setOverlay}
           overlayActive={step.kind === 'match' || step.kind === 'process'}
         >
+          {toast && step.kind !== 'video' && (
+            <div key={toast.key} className={`toast ${toast.tone}`} role="status">
+              {toast.tone === 'ok' || toast.tone === 'win' ? '✓ ' : toast.tone === 'bad' ? '✗ ' : ''}{toast.text}
+            </div>
+          )}
           {needsTap && step.kind === 'video' && (
             <button type="button" className="tap-sound" onClick={togglePlay}>▶ Play with sound</button>
           )}

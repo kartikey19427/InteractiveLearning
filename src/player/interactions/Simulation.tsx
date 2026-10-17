@@ -17,7 +17,7 @@ function firstRule(rules: Rule[] | undefined, env: Env) {
 
 // Slider-driven simulation: controls feed state variables that update every
 // frame, and the scene, readouts and checklist read from that state.
-export default function Simulation({ step, frame, baseEnv, onGoal, onNext, completed }: StepProps<SimulationStep>) {
+export default function Simulation({ step, frame, baseEnv, onGoal, onNext, completed, notify }: StepProps<SimulationStep>) {
   const sim = useRef(initialValues(step));
   const [controls, setControls] = useState(sim.current.controls);
   const [goalNote, setGoalNote] = useState<string | null>(null);
@@ -26,6 +26,8 @@ export default function Simulation({ step, frame, baseEnv, onGoal, onNext, compl
   const goalHit = useRef(false);
   const onGoalRef = useRef(onGoal);
   onGoalRef.current = onGoal;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
 
   const env = (): Env => ({ ...baseEnv, ...sim.current.controls, ...sim.current.state });
 
@@ -43,6 +45,7 @@ export default function Simulation({ step, frame, baseEnv, onGoal, onNext, compl
           goalHit.current = true;
           setGoalNote(step.goal.note);
           onGoalRef.current();
+          notifyRef.current(step.goal.note, 'win');
         }
         acc += dt;
         if (acc > 0.1) { acc = 0; setTick((n) => n + 1); }
@@ -82,7 +85,7 @@ export default function Simulation({ step, frame, baseEnv, onGoal, onNext, compl
           <p className="q">{step.predict.question}</p>
           <div className="choices">
             {step.predict.options.map((o, i) => (
-              <button key={o.label} type="button" className={`btn ${pick === i ? 'picked' : ''}`} onClick={() => setPick(i)}>
+              <button key={o.label} type="button" className={`btn ${pick === i ? 'picked' : ''}`} onClick={() => { setPick(i); notify(o.correct ? 'Good prediction. Now test it.' : 'Not quite. Test it and see.', o.correct ? 'ok' : 'bad'); }}>
                 {o.label}
               </button>
             ))}

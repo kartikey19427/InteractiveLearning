@@ -22,6 +22,91 @@
   "steps": [
     {
       "kind": "video",
+      "id": "intro",
+      "title": "What you'll learn",
+      "tag": "Overview",
+      "narration": [
+        "Every raindrop has made a long journey before it lands on you.",
+        "You'll see how the sun lifts water into the sky, how clouds build raindrops, and how rain returns to the sea."
+      ],
+      "terms": [],
+      "scene": {
+        "duration": 12,
+        "background": "#0E1B24",
+        "elements": [
+          {
+            "type": "label",
+            "text": "Where rain comes from",
+            "x": 400,
+            "y": 90,
+            "size": 1.6,
+            "weight": 700,
+            "bg": false,
+            "alpha": {
+              "$": "sub(t, 0, 1)"
+            }
+          },
+          {
+            "type": "group",
+            "items": [
+              {
+                "n": "1",
+                "t": "The sun lifts water",
+                "at": 4
+              },
+              {
+                "n": "2",
+                "t": "Clouds build raindrops",
+                "at": 6
+              },
+              {
+                "n": "3",
+                "t": "Rain returns to the sea",
+                "at": 8
+              }
+            ],
+            "as": "c",
+            "y": {
+              "$": "170 + i * 70"
+            },
+            "alpha": {
+              "$": "sub(t, c.at, c.at + 0.8)"
+            },
+            "children": [
+              {
+                "type": "ellipse",
+                "x": 250,
+                "y": 0,
+                "rx": 20,
+                "fill": "@sea"
+              },
+              {
+                "type": "label",
+                "text": {
+                  "$": "c.n"
+                },
+                "x": 250,
+                "y": 0,
+                "bg": false,
+                "color": "#FFFFFF"
+              },
+              {
+                "type": "label",
+                "text": {
+                  "$": "c.t"
+                },
+                "x": 290,
+                "y": 0,
+                "align": "left",
+                "bg": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "video",
       "id": "evaporate",
       "title": "The sun lifts water",
       "tag": "Evaporation",

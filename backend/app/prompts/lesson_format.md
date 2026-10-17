@@ -160,7 +160,9 @@ Only the first step may be a `merge` (two draggable circles, radius 30, labels o
 
 ## Lesson shape
 
-- About 8–11 steps: 4–5 video chapters telling the story in order, interleaved with 2–4 activities placed right after the chapter they let the learner test, then the quiz.
+- **Start with the intro.** Step 1 is always a short video step with `"id": "intro"`, `"title": "What you'll learn"`, `"tag": "Overview"`: 2–4 narration sentences (about 15–25 seconds, `duration` ≤ 25) saying what the learner will discover, and a scene that shows the lesson's topic and then its main chapter names appearing one by one (labels or a simple list of callouts). `terms` may be empty.
+- Then about 8–11 more steps: 4–5 video chapters telling the story in order, interleaved with 2–4 activities placed right after the chapter they let the learner test, then the quiz.
+- **Only test what was taught.** Every activity and every quiz question must be answerable from the video chapters before it: no new facts, terms, numbers or rules introduced by a check. If an activity needs an idea, a chapter before it must teach that idea first. Each lesson is reviewed for this, and checks that test untaught material are removed or sent back.
 - Use the activity kind that fits the idea: simulation for cause-and-effect with continuous variables, match for compatibility rules, process for ordered events. Don't force a kind that doesn't fit; two simulations is fine.
 - Plain, concrete language for a curious 14–18 year old. Narration sentences under about 20 words. Terms defined in one sentence.
 - Facts, numbers and ranges must come from the research notes. `sources` lists 3–6 of the research URLs that support the lesson.

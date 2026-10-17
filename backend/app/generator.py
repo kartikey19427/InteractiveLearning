@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
+from .coverage import check_coverage
 from .expr_check import find_expression_errors
 from .lesson_schema import Lesson
 from . import search
@@ -142,7 +143,25 @@ def _problems(raw: dict) -> list[str]:
             problems.append(f"{loc}: {err['msg']}")
     problems.extend(find_expression_errors(raw))
     problems.extend(_label_problems(raw))
+    problems.extend(_shape_problems(raw))
     return problems
+
+
+INTRO_ID = "intro"
+
+
+def _shape_problems(raw: dict) -> list[str]:
+    """New lessons open with a short "What you'll learn" chapter."""
+    steps = raw.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else {}
+    if first.get("kind") != "video" or first.get("id") != INTRO_ID:
+        return ["steps.0 must be the intro: a video step with id \"intro\" and title \"What you'll learn\" that previews the lesson."]
+    out = []
+    if not 2 <= len(first.get("narration") or []) <= 4:
+        out.append("steps.0 (intro): use 2 to 4 short narration sentences (about 15-25 seconds).")
+    if (first.get("scene") or {}).get("duration", 0) > 25:
+        out.append("steps.0 (intro): keep scene.duration at 25 seconds or less.")
+    return out
 
 
 def _count_labels(elements) -> int:
@@ -194,7 +213,15 @@ async def write_lesson(title: str, query: str, notes: str, sources: list[dict[st
             raw, problems = None, [f"could not parse the JSON: {e}"]
 
         if not problems and raw is not None:
-            return raw
+            # Quizzes and activities may only test what earlier chapters taught.
+            await progress("Checking quizzes and activities against the chapters…")
+            try:
+                raw, problems = await check_coverage(raw)
+            except Exception as e:  # a failed review shouldn't sink an otherwise good lesson
+                log.warning("coverage check failed for %r: %s", title, e)
+                problems = []
+            if not problems:
+                return raw
 
         log.warning("lesson attempt %d for %r had %d problems: %s", attempt + 1, title, len(problems), problems[:5])
         if attempt == MAX_REPAIRS:

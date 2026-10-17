@@ -183,17 +183,32 @@ async def _topic(session: AsyncSession, slug: str) -> Topic:
     return topic
 
 
+PAIR = 2  # chapters are sent to the player in pairs: both must be written before either is sent
+
+
 @app.get("/api/topics/{slug}/steps/{index}")
 async def get_step(slug: str, index: int, session: AsyncSession = Depends(get_session)):
-    """One chapter's content. `ready: false` while it's still being written."""
+    """The pair of chapters containing `index`, once both are written (or the lesson is finished).
+
+    The player never waits on a single chapter: it gets the pair as soon as it's complete, so the
+    next pair is ready by the time the learner finishes the one before.
+    """
     topic = await _topic(session, slug)
     steps = topic.lesson.get("steps") or []
-    if 0 <= index < len(steps):
-        return {"ready": True, "step": steps[index], "functions": topic.lesson.get("functions") or {}}
     total = len(topic.lesson.get("outline") or steps)
     if not 0 <= index < total:
         raise HTTPException(404, "No such chapter.")
-    return {"ready": False, "stalled": topic.status in ("stalled", "failed"), "error": topic.error}
+    lo = (index // PAIR) * PAIR
+    hi = min(lo + PAIR, total)
+    complete = bool(topic.lesson.get("complete", True)) and topic.status == "ready"
+    written = min(hi, len(steps))
+    if written >= hi or (complete and index < len(steps)):
+        return {
+            "ready": True,
+            "chunk": [{"index": i, "step": steps[i]} for i in range(lo, written)],
+            "functions": topic.lesson.get("functions") or {},
+        }
+    return {"ready": False, "stalled": topic.status in ("stalled", "failed") and index >= len(steps), "error": topic.error}
 
 
 @app.get("/api/topics/{slug}/narration/{step_id}")

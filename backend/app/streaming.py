@@ -115,58 +115,99 @@ def step_problems(step: dict, index: int, planned: OutlineStep, functions: dict)
     return problems
 
 
-async def _check_step(earlier: list[dict], step: dict) -> tuple[dict, list[str]]:
-    """Only test what was taught: review this activity or quiz against the chapters before it."""
-    if step.get("kind") == "video":
-        return step, []
-    lesson = {"steps": [*earlier, step]}
-    try:
-        report = await get_provider().structured(COVERAGE_SYSTEM, coverage_outline(lesson), CoverageReport)
-    except ProviderUnavailable:
-        return step, []  # rate limited: keep the chapter rather than stall the stream
-    assert isinstance(report, CoverageReport)
-    report.verdicts = [v for v in report.verdicts if v.step_id == step.get("id")]
-    lesson, problems = apply_report(lesson, report)
-    return lesson["steps"][-1], problems
+CHUNK = 3  # chapters written per Gemini call
 
 
-async def write_step(title: str, notes: str, o: Outline, index: int, earlier: list[dict], functions: dict) -> tuple[dict, dict]:
-    """Write chapter `index`. Returns the step and any new helper functions it defines."""
-    provider = get_provider()
-    planned = o.steps[index]
+def chunk_task(title: str, notes: str, o: Outline, idxs: list[int], earlier: list[dict], functions: dict) -> str:
     plan = json.dumps([s.model_dump() for s in o.steps], ensure_ascii=False)
-    task = (
+    chapters = "\n".join(
+        f'- step {i + 1}: id "{o.steps[i].id}", kind "{o.steps[i].kind}", title "{o.steps[i].title}". Brief: {o.steps[i].brief}'
+        for i in idxs
+    )
+    return (
         f"Topic: {title}\n\n<research_notes>\n{notes}\n</research_notes>\n\n"
         f"<outline>\n{plan}\n</outline>\n<palette>{json.dumps(o.palette)}</palette>\n"
         f"<helper_functions_so_far>{json.dumps(functions)}</helper_functions_so_far>\n\n"
         f"<earlier_chapters>\n{_earlier(earlier)}\n</earlier_chapters>\n\n"
-        f'Now write ONLY step {index + 1} of {len(o.steps)}: id "{planned.id}", kind "{planned.kind}", title "{planned.title}". '
-        f"Brief: {planned.brief}\n"
-        "It must follow the format and clarity rules, use palette names from the outline, and if it is an activity or "
-        "quiz, test only what the earlier chapters taught. Reply with JSON only: "
-        '{"step": { ...the step... }, "functions": { ...only NEW helper functions it needs, or {} }}'
+        f"Now write these {len(idxs)} chapters, in order:\n{chapters}\n"
+        "Each follows the format and clarity rules, uses palette names from the outline, and if it is an activity or quiz, "
+        "tests only what the earlier chapters (including the ones above it in this list) taught. "
+        'Reply with JSON only: {"steps": [ ...one step per chapter above, in order... ], "functions": { ...only NEW helper functions, or {} }}'
     )
-    turns = [Turn("user", task)]
+
+
+def _parse_steps(text: str, expected: int) -> tuple[list[dict], dict]:
+    data = _extract_json(text)
+    steps, fns = data.get("steps"), data.get("functions") or {}
+    if not isinstance(steps, list) or not isinstance(fns, dict):
+        raise ValueError('reply must be {"steps": [...], "functions": {...}}')
+    if len(steps) < expected:
+        steps = steps + [None] * (expected - len(steps))
+    return [st if isinstance(st, dict) else {} for st in steps[:expected]], fns
+
+
+async def _check_chunk(earlier: list[dict], chunk: list[dict], chunk_ids: set[str]) -> dict[str, str]:
+    """Quizzes and activities in this chunk may only test what came before. Returns problems by step id."""
+    if not any(st.get("kind") != "video" for st in chunk):
+        return {}
+    lesson = {"steps": [*earlier, *chunk]}
+    try:
+        report = await get_provider().structured(COVERAGE_SYSTEM, coverage_outline(lesson), CoverageReport)
+    except ProviderUnavailable:
+        return {}  # rate limited: keep the chunk rather than stall the stream
+    assert isinstance(report, CoverageReport)
+    report.verdicts = [v for v in report.verdicts if v.step_id in chunk_ids]
+    _, problems = apply_report(lesson, report)
+    out: dict[str, str] = {}
+    for p in problems:
+        sid = p.split(":", 1)[0]
+        out[sid] = out.get(sid, "") + p + " "
+    return out
+
+
+async def write_chunk(title: str, notes: str, o: Outline, idxs: list[int], earlier: list[dict], functions: dict) -> tuple[list[dict], dict]:
+    """Write several chapters in one Gemini call. Each is validated on its own; only broken ones are sent back."""
+    provider = get_provider()
+    turns = [Turn("user", chunk_task(title, notes, o, idxs, earlier, functions))]
+    done: dict[int, dict] = {}
+    new_fns: dict = {}
+    todo = list(idxs)
     for attempt in range(MAX_REPAIRS + 1):
         reply = await provider.write(_writer_system(), turns)
+        problems: dict[int, list[str]] = {}
         try:
             if reply.truncated:
-                raise ValueError("cut off at the length limit; make this chapter more compact")
-            data = _extract_json(reply.text)
-            step, new_fns = data.get("step") or {}, data.get("functions") or {}
-            if not isinstance(step, dict) or not isinstance(new_fns, dict):
-                raise ValueError('reply must be {"step": {...}, "functions": {...}}')
-            problems = step_problems(step, index, planned, {**functions, **new_fns})
-            if not problems:
-                step, problems = await _check_step(earlier, step)
+                raise ValueError("cut off at the length limit; make the chapters more compact")
+            got, fns = _parse_steps(reply.text, len(todo))
+            new_fns = {**new_fns, **fns}
+            for k, i in enumerate(todo):
+                p = step_problems(got[k], i, o.steps[i], {**functions, **new_fns})
+                if p:
+                    problems[i] = p
+                else:
+                    done[i] = got[k]
         except ValueError as e:
-            step, new_fns, problems = None, {}, [f"could not parse the JSON: {e}"]
-        if not problems and step is not None:
-            return step, new_fns
-        log.warning("step %s attempt %d for %r: %s", planned.id, attempt + 1, title, problems[:3])
-        turns += [Turn("assistant", reply.text), Turn("user", "That step failed checks:\n- " + "\n- ".join(problems)
-                                                     + '\n\nReply with the corrected {"step": ..., "functions": ...} JSON only.')]
-    raise GenerationError(f"Couldn't write the chapter \"{planned.title}\". Please try again.")
+            problems = {i: [f"could not parse the JSON: {e}"] for i in todo}
+        # Coverage: checks may only test what came before, judged in order.
+        if not problems:
+            ordered = [done[i] for i in idxs if i in done]
+            flagged = await _check_chunk(earlier, ordered, {o.steps[i].id for i in idxs})
+            for i in list(done):
+                if o.steps[i].id in flagged:
+                    problems[i] = [flagged[o.steps[i].id]]
+                    del done[i]
+        if not problems:
+            return [done[i] for i in idxs], new_fns
+        log.warning("chunk attempt %d for %r: %d chapter(s) need fixing", attempt + 1, title, len(problems))
+        if attempt == MAX_REPAIRS:
+            break
+        todo = sorted(problems)
+        listing = "\n".join(f'- step {i + 1} ("{o.steps[i].title}"): ' + "; ".join(problems[i]) for i in todo)
+        turns += [Turn("assistant", reply.text), Turn("user", (
+            "These chapters failed checks:\n" + listing + "\n\nReply with JSON only: "
+            f'{{"steps": [...the corrected chapters, in this order: {", ".join(str(i + 1) for i in todo)}...], "functions": {{}}}}'
+        ))]
+    raise GenerationError("Couldn't write some chapters of this lesson. Please try again.")
 
 
 def lesson_from_outline(o: Outline) -> dict:
@@ -204,7 +245,7 @@ def outline_from_lesson(lesson: dict) -> Outline:
 async def stream_lesson(title: str, query: str, notes: str, sources: list[dict[str, str]],
                         progress: Callable[[str], Awaitable[None]], save: Save, on_playable: Callable[[], Awaitable[None]],
                         resume: dict | None = None) -> dict:
-    """Write the lesson outline-first, chapter by chapter, saving after each. `resume` carries on a partial one."""
+    """Write the lesson outline-first, a few chapters per call, saving after each chunk. `resume` carries on a partial one."""
     if resume and resume.get("outline"):
         o, lesson = outline_from_lesson(resume), resume
     else:
@@ -212,22 +253,26 @@ async def stream_lesson(title: str, query: str, notes: str, sources: list[dict[s
         o = await write_outline(title, query, notes, sources)
         lesson = lesson_from_outline(o)
         await save(lesson)
-    for i in range(len(lesson["steps"]), len(o.steps)):
-        await progress(f"Writing chapter {i + 1} of {len(o.steps)}: {o.steps[i].title}")
+    first = True
+    while len(lesson["steps"]) < len(o.steps):
+        start = len(lesson["steps"])
+        idxs = list(range(start, min(start + CHUNK, len(o.steps))))
+        await progress(f"Writing chapters {idxs[0] + 1}–{idxs[-1] + 1} of {len(o.steps)}…")
         for wait in (60, 90, 120, None):
             try:
-                step, new_fns = await write_step(title, notes, o, i, lesson["steps"], lesson["functions"])
+                steps, new_fns = await write_chunk(title, notes, o, idxs, lesson["steps"], lesson["functions"])
                 break
             except ProviderUnavailable:
-                # Usually the per-minute limit from writing chapters back to back: pause, then carry on.
+                # Gemini's per-minute limit: wait the full delay and try the same chapters again.
                 if wait is None:
                     raise
-                await progress(f"Waiting a moment for the AI service before chapter {i + 1}…")
+                await progress(f"Gemini is busy; retrying chapter {idxs[0] + 1} in {wait} seconds…")
                 await asyncio.sleep(wait)
-        lesson = {**lesson, "functions": {**lesson["functions"], **new_fns}, "steps": [*lesson["steps"], step]}
+        lesson = {**lesson, "functions": {**lesson["functions"], **new_fns}, "steps": [*lesson["steps"], *steps]}
         await save(lesson)
-        if i == 0:
-            await on_playable()  # the intro is ready: the learner can start
+        if first:
+            await on_playable()
+            first = False
     lesson = {**lesson, "complete": True}
     problems = final_check(lesson)
     if problems:

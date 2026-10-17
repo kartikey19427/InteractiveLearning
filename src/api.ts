@@ -83,10 +83,15 @@ export function retryTopic(slug: string) {
   return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}/retry`, { method: 'POST' });
 }
 
+/** The pair of chapters containing `index`, once both are written. */
 export function getStep(slug: string, index: number) {
-  return request<{ ready: boolean; step?: Step; functions?: Record<string, { args: string[]; expr: string }>; stalled?: boolean; error?: string | null }>(
-    `/topics/${encodeURIComponent(slug)}/steps/${index}`,
-  );
+  return request<{
+    ready: boolean;
+    chunk?: { index: number; step: Step }[];
+    functions?: Record<string, { args: string[]; expr: string }>;
+    stalled?: boolean;
+    error?: string | null;
+  }>(`/topics/${encodeURIComponent(slug)}/steps/${index}`);
 }
 
 export interface ChapterNarration {

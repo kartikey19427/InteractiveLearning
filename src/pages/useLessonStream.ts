@@ -34,9 +34,14 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
     if (inflight.current.has(key)) return;
     inflight.current.add(key);
     try {
+      // The server sends chapters in pairs, so one request usually brings the next one too.
       const r = await getStep(slug, i);
-      if (r.ready && r.step) {
-        setLoaded((m) => ({ ...m, [i]: r.step as Step }));
+      if (r.ready && r.chunk) {
+        setLoaded((m) => {
+          const next = { ...m };
+          for (const c of r.chunk!) next[c.index] = c.step;
+          return next;
+        });
         if (r.functions) setFns((f) => (JSON.stringify(f) === JSON.stringify(r.functions) ? f : r.functions!));
       } else {
         setStalled(!!r.stalled);
@@ -76,6 +81,7 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
       for (let i = index; i <= Math.min(total - 1, index + LOOKAHEAD); i++) {
         const st = loaded[i];
         if (!st) { void loadStep(i); waiting = true; continue; }
+        if (st.kind === 'pending') continue;
         if (st.kind === 'video' && voiceOn) {
           const s = chapterState[st.id];
           if (s === undefined || s === 'preparing') { void loadNarration(st.id); waiting = true; }

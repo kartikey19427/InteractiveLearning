@@ -10,6 +10,7 @@ import Process from './interactions/Process';
 import Quiz from './interactions/Quiz';
 import { DEFAULT_PALETTE } from '../lesson/palette';
 import { advanceClock, clipUsable, idleSpeech, sentenceAt, type SpeechClock } from './clock';
+import { VoiceGate } from './voiceGate';
 import TopBar from '../components/TopBar';
 
 
@@ -48,7 +49,10 @@ export interface Narration {
   clips: Record<string, { url: string; bounds: number[] }>;
 }
 
-export default function LessonPlayer({ lesson, narration, slug }: { lesson: Lesson; narration?: Narration | null; slug?: string }) {
+export default function LessonPlayer({ lesson, narration: narrationProp, slug }: { lesson: Lesson; narration?: Narration | null; slug?: string }) {
+  // Keep the narration the visit started with. A recording that finishes
+  // while someone is watching is used next time, never swapped in mid-lesson.
+  const [narration] = useState<Narration | null>(() => narrationProp ?? null);
   const steps = lesson.steps;
   const palette = useMemo(() => ({ ...DEFAULT_PALETTE, ...lesson.palette }), [lesson.palette]);
   const fns = useMemo(() => defineFunctions(lesson.functions), [lesson.functions]);
@@ -101,6 +105,10 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const baseEnv = useMemo<Env>(() => ({ ...fns, done: doneFn, palette }), [fns, doneFn, palette]);
 
   const stopSpeech = () => { try { window.speechSynthesis?.cancel(); } catch { /* unsupported */ } };
+  // Only one narration source may sound at a time; both start through this.
+  const gate = useRef(new VoiceGate());
+  const browserVoice = useRef({ stop: stopSpeech });
+  const recordedVoice = useRef({ stop: () => audioRef.current?.pause() });
   const speak = useCallback((text: string, si: number, retried = false) => {
     if (!live.current.voice) return;
     const st: Speech = {
@@ -139,6 +147,7 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
         st.ended = true;
         if (e.error === 'not-allowed') { setNeedsTap(true); setPlaying(false); }
       };
+      gate.current.start('browser', browserVoice.current);
       speechSynthesis.speak(u);
     } catch {
       st.failed = true;
@@ -158,6 +167,7 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
     return audioRef.current;
   };
   const stopVoice = useCallback(() => {
+    gate.current.stopAll();
     stopSpeech();
     audioRef.current?.pause();
   }, []);
@@ -178,6 +188,7 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
       };
     }
     a.currentTime = from;
+    gate.current.start('recorded', recordedVoice.current);
     a.play().catch((e: DOMException) => {
       if (e.name === 'NotAllowedError') { setNeedsTap(true); setPlaying(false); }
       else if (e.name !== 'AbortError') setBadClips((b) => new Set(b).add(s.id));

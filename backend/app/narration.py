@@ -267,10 +267,16 @@ async def _speak_eleven(client: httpx.AsyncClient, text: str) -> tuple[bytes, di
     raise NarrationError("ElevenLabs kept hitting the rate limit")
 
 
-async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path) -> dict:
+# One chapter's narration is short; if ElevenLabs takes longer than this to
+# answer, treat it as not working and fall back.
+ELEVEN_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+
+async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path, on_clip=None) -> dict:
+    """Record each chapter in turn; `on_clip(record)` gets the partial record after each one."""
     settings = get_settings()
     clips: dict[str, dict] = {}
-    async with httpx.AsyncClient(timeout=300, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
+    async with httpx.AsyncClient(timeout=ELEVEN_TIMEOUT, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
         for st in videos:
             pcm, alignment = await _speak_eleven(client, " ".join(st["narration"]))
             duration = len(pcm) / 2 / ELEVEN_RATE
@@ -279,10 +285,14 @@ async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path) -> dict:
             (out_dir / name).write_bytes(_wav(pcm, ELEVEN_RATE))
             clips[st["id"]] = {"url": f"/api/media/narration/{slug}/{name}", "bounds": [round(b, 3) for b in bounds]}
             log.info("narrated %s/%s with ElevenLabs (%.1fs)", slug, st["id"], duration)
-    return {"provider": "elevenlabs", "voice": settings.elevenlabs_voice_id, "model": settings.elevenlabs_model, "clips": clips}
+            if on_clip:
+                await on_clip({"provider": "elevenlabs", "voice": settings.elevenlabs_voice_id,
+                               "model": settings.elevenlabs_model, "clips": dict(clips), "complete": False})
+    return {"provider": "elevenlabs", "voice": settings.elevenlabs_voice_id, "model": settings.elevenlabs_model,
+            "clips": clips, "complete": True}
 
 
-async def narrate_lesson(slug: str, lesson: dict) -> dict:
+async def narrate_lesson(slug: str, lesson: dict, on_clip=None) -> dict:
     """Generate audio for every video step. Returns the narration record stored on the topic.
 
     Tries ElevenLabs first when its key is set, then Gemini (Charon) when its key is set.
@@ -298,9 +308,10 @@ async def narrate_lesson(slug: str, lesson: dict) -> dict:
         return {"provider": "none", "voice": settings.tts_voice, "model": settings.tts_model, "clips": {}}
     if settings.elevenlabs_api_key:
         try:
-            return await _narrate_eleven(slug, videos, out_dir)
+            return await _narrate_eleven(slug, videos, out_dir, on_clip)
         except (NarrationError, httpx.HTTPError) as e:
-            # Bad key, unavailable voice or no credits: fall back to the Gemini voice.
+            # Bad key, unavailable voice, no credits, network trouble or a timeout:
+            # fall back to the Gemini voice.
             log.warning("ElevenLabs narration failed for %s, using Gemini instead: %s", slug, e)
             if not settings.gemini_api_key:
                 raise

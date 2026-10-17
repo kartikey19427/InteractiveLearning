@@ -10,7 +10,7 @@ import Process from './interactions/Process';
 import Quiz from './interactions/Quiz';
 import { DEFAULT_PALETTE } from '../lesson/palette';
 import { advanceClock, clipUsable, idleSpeech, sentenceAt, type SpeechClock } from './clock';
-import { VoiceGate } from './voiceGate';
+import { chooseVoice, VoiceGate } from './voiceGate';
 import TopBar from '../components/TopBar';
 
 
@@ -49,10 +49,20 @@ export interface Narration {
   clips: Record<string, { url: string; bounds: number[] }>;
 }
 
-export default function LessonPlayer({ lesson, narration: narrationProp, slug }: { lesson: Lesson; narration?: Narration | null; slug?: string }) {
-  // Keep the narration the visit started with. A recording that finishes
-  // while someone is watching is used next time, never swapped in mid-lesson.
-  const [narration] = useState<Narration | null>(() => narrationProp ?? null);
+import type { NarrationState } from './voiceGate';
+export type { NarrationState };
+
+const voiceKey = (n: Narration | null | undefined) => (n ? `${n.provider ?? 'gemini'}:${n.voice}` : null);
+
+export default function LessonPlayer({ lesson, narration: narrationProp, narrationState = 'none', slug }: {
+  lesson: Lesson; narration?: Narration | null; narrationState?: NarrationState; slug?: string;
+}) {
+  // One voice per visit: the first voice that speaks is locked in. Chapters of
+  // that same recording keep arriving while it's prepared; any other voice is
+  // ignored until the next visit.
+  const [lock, setLock] = useState<string | null>(null);
+  const narration: Narration | null =
+    lock === 'browser' || (lock && voiceKey(narrationProp) !== lock) ? null : narrationProp ?? null;
   const steps = lesson.steps;
   const palette = useMemo(() => ({ ...DEFAULT_PALETTE, ...lesson.palette }), [lesson.palette]);
   const fns = useMemo(() => defineFunctions(lesson.functions), [lesson.functions]);
@@ -148,6 +158,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
         if (e.error === 'not-allowed') { setNeedsTap(true); setPlaying(false); }
       };
       gate.current.start('browser', browserVoice.current);
+      setLock((l) => l ?? 'browser');
       speechSynthesis.speak(u);
     } catch {
       st.failed = true;
@@ -188,6 +199,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
       };
     }
     a.currentTime = from;
+    setLock((l) => l ?? voiceKey(narration));
     gate.current.start('recorded', recordedVoice.current);
     a.play().catch((e: DOMException) => {
       if (e.name === 'NotAllowedError') { setNeedsTap(true); setPlaying(false); }
@@ -197,6 +209,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
   /** Start narration for the current step at the current time: recorded audio if there is some, else the browser voice. */
   const voiceStart = useCallback((s: Step) => {
     if (s.kind !== 'video' || !live.current.voice) return;
+    if (waitingRef.current) return; // Max isn't ready yet; it starts by itself when it is
     const clip = clipFor(s);
     const b = timing[steps.indexOf(s)]?.bounds ?? [];
     if (clip) startAudio(s, clip.url, tRef.current);
@@ -222,11 +235,30 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
     if (steps[n].kind === 'video' && !reducedMotion) setPlaying(true);
   }, [steps, stopVoice]);
 
+  // Waiting for the preferred voice: its chapters are recorded one at a time,
+  // and this chapter's isn't ready yet. The animation holds until it is.
+  const curClip = step.kind === 'video' ? clipFor(step) : undefined;
+  const waiting = step.kind === 'video' && chooseVoice({ voice, state: narrationState, lockedBrowser: lock === 'browser', hasClip: !!curClip }) === 'wait';
+  const waitingRef = useRef(waiting);
+  waitingRef.current = waiting;
+  useEffect(() => {
+    if (!waiting) return;
+    // If it still isn't ready after a minute, carry on with the browser voice.
+    const id = window.setTimeout(() => setLock((l) => l ?? 'browser'), 60_000);
+    return () => clearTimeout(id);
+  }, [waiting, index]);
+  // Latest values for the frame below, so new chapters arriving don't restart the current one.
+  const latest = useRef({ timing, clipFor, startAudio });
+  latest.current = { timing, clipFor, startAudio };
+  const boundsKey = step.kind === 'video' ? timing[index].bounds.join(',') : '';
+  const curUrl = curClip?.url;
+
   // Video steps drive the stage directly; activities install their own frame.
   useEffect(() => {
     if (step.kind !== 'video') return;
-    const { bounds, total } = timing[index];
-    const clip = clipFor(step);
+    const { bounds, total } = latest.current.timing[index];
+    const clip = latest.current.clipFor(step);
+    const startAudio = latest.current.startAudio;
     let shown = -1;
     // Recorded narration: the audio is the clock, so start it with the step.
     if (clip && live.current.voice && live.current.playing) startAudio(step, clip.url, tRef.current);
@@ -234,6 +266,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
       background: step.scene.background,
       tick(dt) {
         if (live.current.index !== index) return;
+        if (waitingRef.current) return; // "Preparing narration…": hold until the voice is ready
         if (live.current.playing) {
           const t = tRef.current;
           const sp = speech.current;
@@ -280,7 +313,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
     };
     return () => { frame.current = null; audioRef.current?.pause(); };
     // `visit` re-runs this on Restart chapter, which restarts the recording too.
-  }, [step, index, visit, timing, baseEnv, go, markDone, speak, steps.length, clipFor, startAudio]);
+  }, [step, index, visit, boundsKey, curUrl, baseEnv, go, markDone, speak, steps.length]);
 
   useEffect(() => () => stopVoice(), [stopVoice]);
 
@@ -397,6 +430,9 @@ export default function LessonPlayer({ lesson, narration: narrationProp, slug }:
               <div key={toast.key} className={`toast ${toast.tone}`} role="status">
                 {toast.tone === 'ok' || toast.tone === 'win' ? '✓ ' : toast.tone === 'bad' ? '✗ ' : ''}{toast.text}
               </div>
+            )}
+            {waiting && playing && (
+              <div className="preparing" role="status"><span className="spin" aria-hidden="true" />Preparing narration…</div>
             )}
             {needsTap && step.kind === 'video' && (
               <button type="button" className="tap-sound" onClick={togglePlay}>▶ Play with sound</button>

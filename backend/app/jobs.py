@@ -80,6 +80,8 @@ async def _run(topic_id: int) -> None:
 
 # Don't hammer the TTS quota: after a failure, wait before trying the same lesson again.
 _narration_failed: dict[int, float] = {}
+# Chapters of the preferred voice recorded so far, shared with the player while the rest are made.
+_partial: dict[int, dict] = {}
 _quota_until = 0.0
 
 
@@ -92,8 +94,7 @@ def enqueue_narration(topic_id: int) -> None:
     """Record narration for a lesson: right after it's generated, or when an older lesson is first opened."""
     if narrating(topic_id) or not get_settings().narrator:
         return
-    now = time.time()
-    if now < _quota_until or now - _narration_failed.get(topic_id, 0) < 1800:
+    if narration_blocked(topic_id):
         return
     task = asyncio.create_task(_narrate(topic_id))
     _running[-topic_id] = task
@@ -108,19 +109,37 @@ async def _narrate(topic_id: int) -> None:
                 return
             slug, lesson = topic.slug, topic.lesson
         global _quota_until
+        async def on_clip(record: dict) -> None:
+            _partial[topic_id] = record
+
         try:
-            narration = await narrate_lesson(slug, lesson)
+            narration = await narrate_lesson(slug, lesson, on_clip)
             await _update(topic_id, narration=narration)
             if (narration.get("provider"), narration.get("voice")) != narrator_target():
                 # Saved from the fallback voice: try the preferred one again later, not on every visit.
                 _narration_failed[topic_id] = time.time()
         except QuotaExhausted as e:
-            _quota_until = time.time() + 3 * 3600
-            log.warning("narration paused for a few hours: %s", e)
+            _narration_failed[topic_id] = time.time()
+            if get_settings().narrator == "gemini":
+                # Only Gemini is configured and its daily allowance is gone: pause everywhere.
+                _quota_until = time.time() + 3 * 3600
+            log.warning("narration out of allowance for %s: %s", slug, e)
         except (NarrationError, httpx.HTTPError) as e:
             _narration_failed[topic_id] = time.time()
             # Lessons still play with the browser voice.
             log.warning("narration failed for %s: %s", slug, e)
+        finally:
+            _partial.pop(topic_id, None)
+
+
+def partial_narration(topic_id: int) -> dict | None:
+    return _partial.get(topic_id)
+
+
+def narration_blocked(topic_id: int) -> bool:
+    """The preferred voice recently failed (or ran out), so the fallback plays for now."""
+    now = time.time()
+    return now < _quota_until or now - _narration_failed.get(topic_id, 0) < 1800
 
 
 async def resume_pending() -> None:

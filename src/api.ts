@@ -17,6 +17,7 @@ export interface TopicDetail extends TopicSummary {
   lesson: Lesson | null;
   narration: Narration | null;
   narrating: boolean;
+  narration_state: 'ready' | 'preparing' | 'fallback' | 'none';
 }
 
 export class ApiError extends Error {

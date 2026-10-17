@@ -15,7 +15,7 @@ from . import jobs
 from .config import get_settings
 from .db import AsyncSession, Topic, TopicAlias, get_session, init_db
 from .generator import GenerationError, MissingCredentials, ProviderUnavailable, name_topic
-from .narration import MEDIA, narration_is_current
+from .narration import MEDIA, narration_is_current, narrator_target
 from .slugs import query_key, slugify
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +67,10 @@ class TopicDetail(TopicSummary):
     narration: dict | None
     # True while recorded narration is being made; the page keeps polling until it lands.
     narrating: bool = False
+    # ready: play `narration`. preparing: the preferred voice is being recorded; play its
+    # chapters as they appear in `narration`. fallback/none: play `narration` if any
+    # (an older voice), else the browser voice.
+    narration_state: str = "none"
 
 
 def _summary(t: Topic) -> TopicSummary:
@@ -78,9 +82,23 @@ def _detail(t: Topic) -> TopicDetail:
         slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
         query=t.query, progress=t.progress, error=t.error,
         lesson=t.lesson if t.status == "ready" else None,
-        narration=t.narration if t.status == "ready" else None,
         narrating=jobs.narrating(t.id),
+        **_narration_view(t),
     )
+
+
+def _narration_view(t: Topic) -> dict:
+    """Which recording the player should use: the preferred voice, its chapters so far, or a fallback."""
+    if t.status != "ready" or not t.lesson:
+        return {"narration": None, "narration_state": "none"}
+    if narrator_target() is None:
+        return {"narration": t.narration, "narration_state": "none"}
+    if narration_is_current(t.narration, t.lesson):
+        return {"narration": t.narration, "narration_state": "ready"}
+    if jobs.narrating(t.id):
+        return {"narration": jobs.partial_narration(t.id), "narration_state": "preparing"}
+    # The preferred voice failed recently: an older recording, if any, stands in.
+    return {"narration": t.narration, "narration_state": "fallback"}
 
 
 async def _add_alias(session: AsyncSession, alias: str, topic_id: int) -> None:
@@ -158,7 +176,8 @@ async def get_topic(slug: str, session: AsyncSession = Depends(get_session)):
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
     if topic.status == "ready" and not narration_is_current(topic.narration, topic.lesson or {}):
-        # Opening a lesson records it with the current voice (once); older recordings play until then.
+        # Opening a lesson records it with the preferred voice (once, never in bulk). The player
+        # waits for it chapter by chapter and only uses an older voice if recording fails.
         jobs.enqueue_narration(topic.id)
     return _detail(topic)
 

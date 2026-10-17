@@ -26,3 +26,18 @@ export class VoiceGate {
     return this.current?.kind ?? null;
   }
 }
+
+export type NarrationState = 'ready' | 'preparing' | 'fallback' | 'none';
+
+/**
+ * Who reads the current chapter. The preferred recording (Max) is waited for
+ * while it's being prepared; an older recording or the browser voice is used
+ * only when the preferred one isn't coming (fallback/none), or once this visit
+ * has already locked in the browser voice.
+ */
+export function chooseVoice(o: { voice: boolean; state: NarrationState; lockedBrowser: boolean; hasClip: boolean }): 'off' | 'wait' | 'recorded' | 'browser' {
+  if (!o.voice) return 'off';
+  if (o.hasClip && !o.lockedBrowser) return 'recorded';
+  if (o.state === 'preparing' && !o.lockedBrowser) return 'wait';
+  return 'browser';
+}

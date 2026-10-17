@@ -159,6 +159,13 @@ h2 { font-size: 18px; }
   font: 600 16px var(--f-body); color: #1F2328; background: #FFFFFF; border: 0; border-radius: 999px;
   padding: 14px 24px; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,.35);
 }
+.preparing {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 10px;
+  font: 600 15px var(--f-body); color: #1F2328; background: rgba(255,255,255,.94); border-radius: 999px; padding: 12px 20px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35); pointer-events: none;
+}
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #C9CCD1; border-top-color: #1F2328; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .caption {
   display: flex; gap: 12px; padding: 2px 4px; flex: none;
 }
@@ -284,5 +291,5 @@ input[type=range] { width: 100%; accent-color: var(--primary); min-height: 28px;
 }
 @media (prefers-reduced-motion: reduce) {
   .bar i { transition: none; }
-  .dots::after, .fade-in, .stage svg .shake, .toast { animation: none; }
+  .dots::after, .fade-in, .stage svg .shake, .toast, .spin { animation: none; }
 }

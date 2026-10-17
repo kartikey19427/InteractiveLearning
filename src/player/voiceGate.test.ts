@@ -42,3 +42,26 @@ describe('VoiceGate', () => {
     expect(gate.playing).toBeNull();
   });
 });
+
+import { chooseVoice } from './voiceGate';
+
+describe('chooseVoice: always Max unless it is not working', () => {
+  const base = { voice: true, lockedBrowser: false, hasClip: false };
+  it('waits for Max while it is being recorded, instead of using an older voice', () => {
+    expect(chooseVoice({ ...base, state: 'preparing' })).toBe('wait');
+  });
+  it('plays Max as soon as this chapter is ready', () => {
+    expect(chooseVoice({ ...base, state: 'preparing', hasClip: true })).toBe('recorded');
+    expect(chooseVoice({ ...base, state: 'ready', hasClip: true })).toBe('recorded');
+  });
+  it('falls back only when Max failed or no voice service is set up', () => {
+    expect(chooseVoice({ ...base, state: 'fallback' })).toBe('browser');
+    expect(chooseVoice({ ...base, state: 'none' })).toBe('browser');
+  });
+  it('keeps the browser voice for the rest of a visit once it has started', () => {
+    expect(chooseVoice({ ...base, state: 'preparing', hasClip: true, lockedBrowser: true })).toBe('browser');
+  });
+  it('does nothing with narration off', () => {
+    expect(chooseVoice({ ...base, voice: false, state: 'preparing' })).toBe('off');
+  });
+});

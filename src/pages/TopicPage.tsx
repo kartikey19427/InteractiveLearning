@@ -69,8 +69,8 @@ export default function TopicPage() {
         setTopic((prev) => (prev && prev.slug === t.slug && prev.lesson && t.lesson ? { ...t, lesson: prev.lesson } : t));
         setError(null);
         if (t.status !== 'ready' && t.status !== 'failed') timer = window.setTimeout(load, 2500);
-        // A recording that finishes during this visit is used on the next one:
-        // the player never switches voices mid-lesson, so no need to poll for it.
+        // The preferred voice is being recorded chapter by chapter: keep picking up new chapters.
+        else if (t.status === 'ready' && t.narration_state === 'preparing') timer = window.setTimeout(load, 2000);
       } catch (err) {
         if (!alive) return;
         setError(err instanceof ApiError && err.status === 404 ? 'There is no lesson for this topic yet.' : 'Could not reach the server.');
@@ -96,7 +96,7 @@ export default function TopicPage() {
   };
 
   if (topic?.status === 'ready' && topic.lesson) {
-    return <LessonPlayer lesson={topic.lesson} narration={topic.narration} slug={topic.slug} />;
+    return <LessonPlayer lesson={topic.lesson} narration={topic.narration} narrationState={topic.narration_state} slug={topic.slug} />;
   }
 
   const title = topic?.title ?? slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());

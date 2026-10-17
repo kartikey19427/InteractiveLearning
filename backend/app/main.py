@@ -15,7 +15,7 @@ from . import jobs
 from .config import get_settings
 from .db import AsyncSession, Topic, TopicAlias, get_session, init_db
 from .generator import GenerationError, MissingCredentials, ProviderUnavailable, name_topic
-from .narration import MEDIA
+from .narration import MEDIA, narration_is_current
 from .slugs import query_key, slugify
 
 logging.basicConfig(level=logging.INFO)
@@ -157,8 +157,8 @@ async def get_topic(slug: str, session: AsyncSession = Depends(get_session)):
     topic = await session.scalar(select(Topic).where(Topic.slug == slug))
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
-    if topic.status == "ready" and topic.narration is None:
-        # Older lessons get their recorded voice the first time someone opens them.
+    if topic.status == "ready" and not narration_is_current(topic.narration, topic.lesson or {}):
+        # Opening a lesson records it with the current voice (once); older recordings play until then.
         jobs.enqueue_narration(topic.id)
     return _detail(topic)
 

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from .config import get_settings
 from .db import Session, Topic
 from .generator import GenerationError, research, write_lesson
-from .narration import NarrationError, QuotaExhausted, narrate_lesson
+from .narration import NarrationError, QuotaExhausted, narrate_lesson, narration_is_current, narrator_target
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def narrating(topic_id: int) -> bool:
 
 def enqueue_narration(topic_id: int) -> None:
     """Record narration for a lesson: right after it's generated, or when an older lesson is first opened."""
-    if narrating(topic_id) or not get_settings().gemini_api_key:
+    if narrating(topic_id) or not get_settings().narrator:
         return
     now = time.time()
     if now < _quota_until or now - _narration_failed.get(topic_id, 0) < 1800:
@@ -104,13 +104,16 @@ async def _narrate(topic_id: int) -> None:
     async with _tts:
         async with Session() as s:
             topic = await s.get(Topic, topic_id)
-            if topic is None or topic.lesson is None or topic.narration:
+            if topic is None or topic.lesson is None or narration_is_current(topic.narration, topic.lesson):
                 return
             slug, lesson = topic.slug, topic.lesson
         global _quota_until
         try:
             narration = await narrate_lesson(slug, lesson)
             await _update(topic_id, narration=narration)
+            if (narration.get("provider"), narration.get("voice")) != narrator_target():
+                # Saved from the fallback voice: try the preferred one again later, not on every visit.
+                _narration_failed[topic_id] = time.time()
         except QuotaExhausted as e:
             _quota_until = time.time() + 3 * 3600
             log.warning("narration paused for a few hours: %s", e)

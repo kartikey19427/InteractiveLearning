@@ -9,25 +9,13 @@ import Match from './interactions/Match';
 import Process from './interactions/Process';
 import Quiz from './interactions/Quiz';
 import { DEFAULT_PALETTE } from '../lesson/palette';
+import { advanceClock, clipUsable, idleSpeech, sentenceAt, type SpeechClock } from './clock';
 import TopBar from '../components/TopBar';
 
 
 const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-interface Speech {
-  si: number;
-  text: string;
-  requestedAt: number;
-  started: boolean;
-  startAt: number;
-  ended: boolean;
-  /** Expected speaking time; refined by boundary events. */
-  estMs: number;
-  /** Progress through the sentence from the last boundary event, 0..1. */
-  p: number;
-}
-
-const idleSpeech = (): Speech => ({ si: -1, text: '', requestedAt: 0, started: false, startAt: 0, ended: true, estMs: 1, p: 0 });
+type Speech = SpeechClock & { text: string };
 
 // Playback length of each narration sentence, so scenes pace to the words.
 function sentenceBounds(step: VideoStep) {
@@ -39,11 +27,6 @@ function sentenceBounds(step: VideoStep) {
   return { bounds, total: acc };
 }
 
-function sentenceAt(bounds: number[], t: number) {
-  let i = 0;
-  while (i < bounds.length - 1 && t >= bounds[i]) i++;
-  return i;
-}
 
 export interface StepProps<S extends Step> {
   step: S;
@@ -60,6 +43,7 @@ export interface StepProps<S extends Step> {
 export type Tone = 'ok' | 'bad' | 'info' | 'win';
 
 export interface Narration {
+  provider?: 'elevenlabs' | 'gemini' | 'none';
   voice: string;
   clips: Record<string, { url: string; bounds: number[] }>;
 }
@@ -73,7 +57,7 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
       if (s.kind !== 'video') return { bounds: [], total: 0 };
       // With recorded narration, each sentence lasts exactly as long as it does in the audio.
       const clip = narration?.clips?.[s.id];
-      if (clip && clip.bounds.length === s.narration.length) return { bounds: clip.bounds, total: clip.bounds[clip.bounds.length - 1] };
+      if (clip && clipUsable(clip.bounds, s.narration.length)) return { bounds: clip.bounds, total: clip.bounds[clip.bounds.length - 1] };
       return sentenceBounds(s);
     }),
     [steps, narration],
@@ -103,7 +87,9 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const tRef = useRef(0);
   const live = useRef({ index, playing, voice, done });
   live.current = { index, playing, voice, done };
-  const speech = useRef<Speech>(idleSpeech());
+  const speech = useRef<Speech>({ ...idleSpeech(), text: '' });
+  // Set once the browser voice has failed to start; then lessons run on the plain clock.
+  const speechBroken = useRef(false);
   // Learned speaking speed (characters per second), used to pace a sentence before boundary events arrive.
   const cps = useRef(14);
 
@@ -115,18 +101,26 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const baseEnv = useMemo<Env>(() => ({ ...fns, done: doneFn, palette }), [fns, doneFn, palette]);
 
   const stopSpeech = () => { try { window.speechSynthesis?.cancel(); } catch { /* unsupported */ } };
-  const speak = useCallback((text: string, si: number) => {
-    if (!live.current.voice || !('speechSynthesis' in window)) return;
+  const speak = useCallback((text: string, si: number, retried = false) => {
+    if (!live.current.voice) return;
     const st: Speech = {
       si, text, requestedAt: performance.now(), started: false, startAt: 0, ended: false,
+      failed: speechBroken.current || !('speechSynthesis' in window), retried,
       estMs: (text.length / cps.current) * 1000, p: 0,
     };
     speech.current = st;
+    if (st.failed) return;
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.rate = 1.02;
-      u.onstart = () => { st.started = true; st.startAt = performance.now(); };
+      u.onstart = () => {
+        // Started after we gave up on it: silence it rather than talk over a
+        // clock that has moved on.
+        if (st.failed || speech.current !== st) { speechSynthesis.cancel(); return; }
+        st.started = true;
+        st.startAt = performance.now();
+      };
       u.onboundary = (e) => {
         if (!st.started || !text.length) return;
         const p = Math.min(1, e.charIndex / text.length);
@@ -141,12 +135,13 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
         st.ended = true;
       };
       u.onerror = (e) => {
+        if (e.error === 'interrupted' || e.error === 'canceled') return; // we cancelled it
         st.ended = true;
         if (e.error === 'not-allowed') { setNeedsTap(true); setPlaying(false); }
       };
       speechSynthesis.speak(u);
     } catch {
-      st.ended = true;
+      st.failed = true;
     }
   }, []);
 
@@ -156,7 +151,7 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const clipFor = useCallback((s: Step) => {
     if (s.kind !== 'video') return undefined;
     const clip = narration?.clips?.[s.id];
-    return clip && !badClips.has(s.id) && clip.bounds.length === s.narration.length ? clip : undefined;
+    return clip && !badClips.has(s.id) && clipUsable(clip.bounds, s.narration.length) ? clip : undefined;
   }, [narration, badClips]);
   const getAudio = () => {
     if (!audioRef.current) audioRef.current = new Audio();
@@ -169,13 +164,25 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const startAudio = useCallback((s: Step, url: string, from: number) => {
     const a = getAudio();
     const abs = new URL(url, window.location.origin).href;
-    if (a.src !== abs) { a.src = abs; a.onerror = () => setBadClips((b) => new Set(b).add(s.id)); }
+    if (a.src !== abs) {
+      a.src = abs;
+      a.onerror = () => setBadClips((b) => new Set(b).add(s.id));
+      // Timings that don't fit the audio would put words and pictures out of
+      // step; use the browser voice for this chapter instead.
+      a.onloadedmetadata = () => {
+        const c = narration?.clips?.[s.id];
+        if (s.kind === 'video' && c && !clipUsable(c.bounds, s.narration.length, a.duration)) {
+          a.pause();
+          setBadClips((b) => new Set(b).add(s.id));
+        }
+      };
+    }
     a.currentTime = from;
     a.play().catch((e: DOMException) => {
       if (e.name === 'NotAllowedError') { setNeedsTap(true); setPlaying(false); }
       else if (e.name !== 'AbortError') setBadClips((b) => new Set(b).add(s.id));
     });
-  }, []);
+  }, [narration]);
   /** Start narration for the current step at the current time: recorded audio if there is some, else the browser voice. */
   const voiceStart = useCallback((s: Step) => {
     if (s.kind !== 'video' || !live.current.voice) return;
@@ -192,6 +199,10 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
   const go = useCallback((i: number) => {
     const n = Math.max(0, Math.min(steps.length - 1, i));
     stopVoice();
+    // Stop the old chapter's clock now; otherwise it ticks once more with the
+    // time reset to 0 before React swaps it out, and speaks its first sentence
+    // over the next chapter.
+    frame.current = null;
     tRef.current = 0;
     setSentence(0);
     setIndex(n);
@@ -211,40 +222,30 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
     frame.current = {
       background: step.scene.background,
       tick(dt) {
+        if (live.current.index !== index) return;
         if (live.current.playing) {
           const t = tRef.current;
-          const si = sentenceAt(bounds, t);
-          const slotStart = si > 0 ? bounds[si - 1] : 0;
-          const slotEnd = bounds[si] - 0.02;
           const sp = speech.current;
-          let nt = t + dt;
           const a = audioRef.current;
-          if (clip && live.current.voice) {
-            // Follow the recording exactly; hold while it loads, run out the clock once it ends.
-            if (a && a.ended) nt = t + dt;
-            else if (a && !a.paused) nt = Math.max(t, a.currentTime);
-            else nt = t;
-          } else if (live.current.voice && sp.si === si) {
-            // The voice drives the clock: each sentence's slice of the animation
-            // plays across exactly the time it takes to say that sentence.
-            const now = performance.now();
-            if (!sp.started && !sp.ended && now - sp.requestedAt > 1500) {
-              // The voice never started. Before any click the browser blocks speech,
-              // so pause and ask for one; otherwise carry on without sound.
-              sp.ended = true;
-              if (!(navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive) {
-                setNeedsTap(true);
-                setPlaying(false);
-                return;
-              }
+          const { t: nt, event } = advanceClock({
+            t, dt, now: performance.now(), bounds, voice: live.current.voice,
+            audio: clip && live.current.voice && a ? a : null, speech: sp,
+          });
+          if (event === 'retry-speech') {
+            // Browsers sometimes drop an utterance right after cancel(); ask once more.
+            speak(sp.text, sp.si, true);
+          } else if (event === 'speech-unavailable') {
+            const active = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive;
+            if (!active) {
+              // Speech is blocked until the first click: pause and ask for one.
+              speech.current = { ...idleSpeech(), text: '' };
+              setNeedsTap(true);
+              setPlaying(false);
+              return;
             }
-            if (sp.ended && !sp.started) nt = t + dt; // no voice available: plain clock
-            else if (sp.ended) nt = t + dt * 4; // speech done: move briskly to the next sentence
-            else if (!sp.started) nt = t; // wait for the voice to begin
-            else {
-              const p = Math.max(sp.p, Math.min(0.97, (now - sp.startAt) / sp.estMs));
-              nt = Math.min(slotEnd, Math.max(t, slotStart + p * (slotEnd - slotStart)));
-            }
+            sp.failed = true;
+            speechBroken.current = true;
+            try { speechSynthesis.cancel(); } catch { /* unsupported */ }
           }
           tRef.current = nt;
           if (nt >= total) {
@@ -322,6 +323,11 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
 
   const crumbs = lesson.eyebrow.split('·').map((x) => x.trim()).filter((x) => x && !/^interactive lesson$/i.test(x));
   const kindLabel = (s: Step) => (s.kind === 'video' ? 'Video' : s.kind === 'quiz' ? 'Quiz' : 'Try it');
+  // Which voice reads this chapter: the recording's provider, or the browser's own voice.
+  const recorded = step.kind === 'video' && !!clipFor(step);
+  const voiceName = !recorded ? 'browser'
+    : narration?.provider === 'elevenlabs' ? 'ElevenLabs'
+    : narration?.provider === 'gemini' ? `Gemini ${narration.voice}` : 'recording';
 
   return (
     <div className="app fixed">
@@ -386,6 +392,9 @@ export default function LessonPlayer({ lesson, narration, slug }: { lesson: Less
             )}
           </Stage>
           <div className="caption" aria-live="polite"><p>{caption}</p></div>
+          {voice && step.kind === 'video' && (
+            <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.6 }}>Voice: {voiceName}</p>
+          )}
           <div className="transport">
             <button className="btn" type="button" disabled={index === 0} onClick={() => go(index - 1)}>Back</button>
             <button

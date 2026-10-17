@@ -60,7 +60,7 @@ def test_used_up_allowance_pauses_narration():
 def test_a_failed_elevenlabs_run_falls_back_to_gemini(monkeypatch, tmp_path):
     calls = []
 
-    async def eleven(slug, videos, out_dir, on_clip=None):
+    async def eleven(slug, videos, out_dir, on_clip=None, voice=None):
         raise narration.NarrationError("voice not available")
 
     async def gemini(slug, videos, out_dir):
@@ -81,7 +81,7 @@ def test_a_failed_elevenlabs_run_falls_back_to_gemini(monkeypatch, tmp_path):
 
 
 def test_without_a_fallback_the_elevenlabs_error_goes_up(monkeypatch, tmp_path):
-    async def eleven(slug, videos, out_dir, on_clip=None):
+    async def eleven(slug, videos, out_dir, on_clip=None, voice=None):
         raise narration.NarrationError("voice not available")
 
     monkeypatch.setattr(narration, "_narrate_eleven", eleven)

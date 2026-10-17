@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+
+import httpx
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -15,7 +17,7 @@ from . import jobs
 from .config import get_settings
 from .db import AsyncSession, Topic, TopicAlias, get_session, init_db
 from .generator import GenerationError, MissingCredentials, ProviderUnavailable, name_topic
-from .narration import MEDIA, narration_is_current, narrator_target
+from .narration import MEDIA, VOICES, narration_is_current, narrator_target, pick_voice
 from .slugs import query_key, slugify
 
 logging.basicConfig(level=logging.INFO)
@@ -77,26 +79,27 @@ def _summary(t: Topic) -> TopicSummary:
     return TopicSummary(slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at)
 
 
-def _detail(t: Topic) -> TopicDetail:
+def _detail(t: Topic, voice: str | None = None) -> TopicDetail:
     return TopicDetail(
         slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
         query=t.query, progress=t.progress, error=t.error,
         lesson=t.lesson if t.status == "ready" else None,
-        narrating=jobs.narrating(t.id),
-        **_narration_view(t),
+        narrating=jobs.narrating(t.id, voice),
+        **_narration_view(t, voice),
     )
 
 
-def _narration_view(t: Topic) -> dict:
-    """Which recording the player should use: the preferred voice, its chapters so far, or a fallback."""
+def _narration_view(t: Topic, voice: str | None = None) -> dict:
+    """Which recording the player should use: the chosen voice, its chapters so far, or a fallback."""
     if t.status != "ready" or not t.lesson:
         return {"narration": None, "narration_state": "none"}
-    if narrator_target() is None:
+    if narrator_target(voice) is None:
         return {"narration": t.narration, "narration_state": "none"}
-    if narration_is_current(t.narration, t.lesson):
-        return {"narration": t.narration, "narration_state": "ready"}
-    if jobs.narrating(t.id):
-        return {"narration": jobs.partial_narration(t.id), "narration_state": "preparing"}
+    rec = jobs.recording_for(t, voice) or t.narration
+    if narration_is_current(rec, t.lesson, voice):
+        return {"narration": rec, "narration_state": "ready"}
+    if jobs.narrating(t.id, voice):
+        return {"narration": jobs.partial_narration(t.id, voice), "narration_state": "preparing"}
     # The preferred voice failed recently: an older recording, if any, stands in.
     return {"narration": t.narration, "narration_state": "fallback"}
 
@@ -171,15 +174,40 @@ async def list_topics(session: AsyncSession = Depends(get_session)):
 
 
 @app.get("/api/topics/{slug}", response_model=TopicDetail)
-async def get_topic(slug: str, session: AsyncSession = Depends(get_session)):
+async def get_topic(slug: str, voice: str | None = None, session: AsyncSession = Depends(get_session)):
     topic = await session.scalar(select(Topic).where(Topic.slug == slug))
     if topic is None:
         raise HTTPException(404, "No lesson for this topic yet.")
-    if topic.status == "ready" and not narration_is_current(topic.narration, topic.lesson or {}):
+    if topic.status == "ready" and not narration_is_current(jobs.recording_for(topic, voice) or topic.narration, topic.lesson or {}, voice):
         # Opening a lesson records it with the preferred voice (once, never in bulk). The player
         # waits for it chapter by chapter and only uses an older voice if recording fails.
-        jobs.enqueue_narration(topic.id)
-    return _detail(topic)
+        jobs.enqueue_narration(topic.id, voice)
+    return _detail(topic, voice)
+
+
+_previews: dict[str, str] = {}
+
+
+@app.get("/api/voices")
+async def list_voices():
+    """Narration voices for the Voice menu, with ElevenLabs' public sample links (free to play)."""
+    settings = get_settings()
+    if not settings.elevenlabs_api_key:
+        return {"default": None, "voices": []}
+    missing = [v["id"] for v in VOICES if v["id"] not in _previews]
+    if missing:
+        async with httpx.AsyncClient(timeout=10, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
+            for vid in missing:
+                try:
+                    res = await client.get(f"https://api.elevenlabs.io/v1/voices/{vid}")
+                    if res.status_code == 200 and res.json().get("preview_url"):
+                        _previews[vid] = res.json()["preview_url"]
+                except httpx.HTTPError:
+                    pass
+    return {
+        "default": pick_voice(None),
+        "voices": [{**v, "preview_url": _previews.get(v["id"])} for v in VOICES],
+    }
 
 
 @app.post("/api/topics/{slug}/retry", response_model=TopicDetail)

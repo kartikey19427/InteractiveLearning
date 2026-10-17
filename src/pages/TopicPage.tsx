@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ApiError, getTopic, retryTopic, type LessonStatus, type TopicDetail } from '../api';
+import { ApiError, getTopic, listVoices, retryTopic, type LessonStatus, type TopicDetail, type VoiceOption } from '../api';
 import LessonPlayer from '../player/LessonPlayer';
 import TopBar from '../components/TopBar';
 
@@ -57,13 +57,30 @@ export default function TopicPage() {
   const [topic, setTopic] = useState<TopicDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Narration voice, remembered in this browser; Max (the server's default) until one is picked.
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [voiceId, setVoiceId] = useState<string>(() => { try { return localStorage.getItem('voiceId') ?? ''; } catch { return ''; } });
+  const [resumeAt, setResumeAt] = useState(0);
+  useEffect(() => {
+    listVoices().then((r) => {
+      setVoices(r.voices);
+      setVoiceId((v) => (v && r.voices.some((x) => x.id === v) ? v : r.default ?? ''));
+    }).catch(() => setVoices([]));
+  }, []);
+  const changeVoice = (id: string, atIndex: number) => {
+    try { localStorage.setItem('voiceId', id); } catch { /* storage unavailable */ }
+    setResumeAt(atIndex);
+    // Drop the old voice's audio until the new voice's state arrives, so the player waits for it.
+    setTopic((prev) => (prev ? { ...prev, narration: null, narration_state: 'preparing' } : prev));
+    setVoiceId(id);
+  };
 
   useEffect(() => {
     let alive = true;
     let timer = 0;
     const load = async () => {
       try {
-        const t = await getTopic(slug);
+        const t = await getTopic(slug, voiceId || undefined);
         if (!alive) return;
         // Don't remount the player when only narration changes.
         setTopic((prev) => (prev && prev.slug === t.slug && prev.lesson && t.lesson ? { ...t, lesson: prev.lesson } : t));
@@ -77,10 +94,10 @@ export default function TopicPage() {
         if (!(err instanceof ApiError)) timer = window.setTimeout(load, 4000);
       }
     };
-    setTopic(null);
+    setTopic((prev) => (prev && prev.slug === slug ? prev : null));
     void load();
     return () => { alive = false; clearTimeout(timer); };
-  }, [slug, attempt]);
+  }, [slug, attempt, voiceId]);
 
   useEffect(() => {
     if (topic?.title) document.title = `${topic.title} · Interactive Learning`;
@@ -96,7 +113,19 @@ export default function TopicPage() {
   };
 
   if (topic?.status === 'ready' && topic.lesson) {
-    return <LessonPlayer lesson={topic.lesson} narration={topic.narration} narrationState={topic.narration_state} slug={topic.slug} />;
+    return (
+      <LessonPlayer
+        key={voiceId}
+        lesson={topic.lesson}
+        narration={topic.narration}
+        narrationState={topic.narration_state}
+        slug={topic.slug}
+        startIndex={resumeAt}
+        voices={voices}
+        voiceId={voiceId}
+        onVoiceChange={changeVoice}
+      />
+    );
   }
 
   const title = topic?.title ?? slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());

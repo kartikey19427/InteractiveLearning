@@ -204,11 +204,29 @@ async def _speak(client: httpx.AsyncClient, text: str) -> tuple[bytes, int]:
     raise NarrationError("TTS kept hitting the rate limit")
 
 
-def narrator_target() -> tuple[str, str] | None:
+# Voices offered in the app's Voice menu: ElevenLabs voices suited to lessons.
+# The first is the default; ELEVENLABS_VOICE_ID in .env can change which one that is.
+VOICES = [
+    {"id": "Gfpl8Yo74Is0W6cPUWWT", "name": "Max", "description": "American, made for e-learning and documentaries"},
+    {"id": "Xb7hH8MSUJpSbSDYk0k2", "name": "Alice", "description": "British, clear and engaging educator"},
+    {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "description": "British, steady broadcaster"},
+    {"id": "XrExE9yKIg1WjnnlVkGX", "name": "Matilda", "description": "American, knowledgeable and professional"},
+    {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "description": "British, warm storyteller"},
+]
+
+
+def pick_voice(voice: str | None) -> str:
+    """A voice from the menu, or the default when none (or an unknown one) is asked for."""
+    if voice and any(v["id"] == voice for v in VOICES):
+        return voice
+    return get_settings().elevenlabs_voice_id
+
+
+def narrator_target(voice: str | None = None) -> tuple[str, str] | None:
     """The (provider, voice) new recordings are made with, or None when no narrator is configured."""
     settings = get_settings()
     if settings.elevenlabs_api_key:
-        return "elevenlabs", settings.elevenlabs_voice_id
+        return "elevenlabs", pick_voice(voice)
     if settings.gemini_api_key:
         return "gemini", settings.tts_voice
     return None
@@ -219,7 +237,7 @@ def _record_key(narration: dict) -> tuple[str, str]:
     return narration.get("provider", "gemini"), narration.get("voice", "")
 
 
-def narration_is_current(narration: dict | None, lesson: dict) -> bool:
+def narration_is_current(narration: dict | None, lesson: dict, voice: str | None = None) -> bool:
     """Whether a lesson's saved recording matches the narrator in use, so nothing needs making.
 
     Lessons with no spoken steps never need a recording. Lessons with a recording
@@ -228,7 +246,7 @@ def narration_is_current(narration: dict | None, lesson: dict) -> bool:
     """
     if not any(st.get("kind") == "video" for st in lesson.get("steps", [])):
         return True
-    target = narrator_target()
+    target = narrator_target(voice)
     if target is None or narration is None:
         return target is None
     return _record_key(narration) == target
@@ -249,9 +267,9 @@ def aligned_bounds(alignment: dict, sentences: list[str], duration: float) -> li
     return out if out == sorted(out) else None
 
 
-async def _speak_eleven(client: httpx.AsyncClient, text: str) -> tuple[bytes, dict]:
+async def _speak_eleven(client: httpx.AsyncClient, text: str, voice: str | None = None) -> tuple[bytes, dict]:
     settings = get_settings()
-    url = ELEVEN_URL.format(voice=settings.elevenlabs_voice_id)
+    url = ELEVEN_URL.format(voice=pick_voice(voice))
     body = {"text": text, "model_id": settings.elevenlabs_model}
     for attempt in range(4):
         res = await client.post(url, params={"output_format": f"pcm_{ELEVEN_RATE}"}, json=body)
@@ -272,27 +290,28 @@ async def _speak_eleven(client: httpx.AsyncClient, text: str) -> tuple[bytes, di
 ELEVEN_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
-async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path, on_clip=None) -> dict:
+async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path, on_clip=None, voice: str | None = None) -> dict:
     """Record each chapter in turn; `on_clip(record)` gets the partial record after each one."""
     settings = get_settings()
+    voice = pick_voice(voice)
     clips: dict[str, dict] = {}
     async with httpx.AsyncClient(timeout=ELEVEN_TIMEOUT, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
         for st in videos:
-            pcm, alignment = await _speak_eleven(client, " ".join(st["narration"]))
+            pcm, alignment = await _speak_eleven(client, " ".join(st["narration"]), voice)
             duration = len(pcm) / 2 / ELEVEN_RATE
             bounds = aligned_bounds(alignment, st["narration"], duration) or sentence_bounds(pcm, ELEVEN_RATE, st["narration"])
-            name = f"{st['id']}-elevenlabs-{settings.elevenlabs_voice_id}.wav"
+            name = f"{st['id']}-elevenlabs-{voice}.wav"
             (out_dir / name).write_bytes(_wav(pcm, ELEVEN_RATE))
             clips[st["id"]] = {"url": f"/api/media/narration/{slug}/{name}", "bounds": [round(b, 3) for b in bounds]}
             log.info("narrated %s/%s with ElevenLabs (%.1fs)", slug, st["id"], duration)
             if on_clip:
-                await on_clip({"provider": "elevenlabs", "voice": settings.elevenlabs_voice_id,
+                await on_clip({"provider": "elevenlabs", "voice": voice,
                                "model": settings.elevenlabs_model, "clips": dict(clips), "complete": False})
-    return {"provider": "elevenlabs", "voice": settings.elevenlabs_voice_id, "model": settings.elevenlabs_model,
+    return {"provider": "elevenlabs", "voice": voice, "model": settings.elevenlabs_model,
             "clips": clips, "complete": True}
 
 
-async def narrate_lesson(slug: str, lesson: dict, on_clip=None) -> dict:
+async def narrate_lesson(slug: str, lesson: dict, on_clip=None, voice: str | None = None) -> dict:
     """Generate audio for every video step. Returns the narration record stored on the topic.
 
     Tries ElevenLabs first when its key is set, then Gemini (Charon) when its key is set.
@@ -308,7 +327,7 @@ async def narrate_lesson(slug: str, lesson: dict, on_clip=None) -> dict:
         return {"provider": "none", "voice": settings.tts_voice, "model": settings.tts_model, "clips": {}}
     if settings.elevenlabs_api_key:
         try:
-            return await _narrate_eleven(slug, videos, out_dir, on_clip)
+            return await _narrate_eleven(slug, videos, out_dir, on_clip, voice)
         except (NarrationError, httpx.HTTPError) as e:
             # Bad key, unavailable voice, no credits, network trouble or a timeout:
             # fall back to the Gemini voice.

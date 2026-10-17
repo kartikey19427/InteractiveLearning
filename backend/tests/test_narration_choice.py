@@ -9,20 +9,21 @@ MAX = ("elevenlabs", "max")
 
 
 def topic(narration):
-    return SimpleNamespace(id=1, status="ready", lesson=LESSON, narration=narration)
+    return SimpleNamespace(id=1, status="ready", lesson=LESSON, narration=narration, voices=None)
 
 
 def setup(monkeypatch, narrating=False, partial=None):
-    monkeypatch.setattr(main, "narrator_target", lambda: MAX)
+    monkeypatch.setattr(main, "narrator_target", lambda voice=None: MAX)
     import app.narration as narration
-    monkeypatch.setattr(narration, "narrator_target", lambda: MAX)
-    monkeypatch.setattr(main.jobs, "narrating", lambda _id: narrating)
-    monkeypatch.setattr(main.jobs, "partial_narration", lambda _id: partial)
+    monkeypatch.setattr(narration, "narrator_target", lambda voice=None: MAX)
+    monkeypatch.setattr(main.jobs, "narrating", lambda _id, voice=None: narrating)
+    monkeypatch.setattr(main.jobs, "partial_narration", lambda _id, voice=None: partial)
 
 
 def test_saved_max_recording_plays(monkeypatch):
     setup(monkeypatch)
     rec = {"provider": "elevenlabs", "voice": "max", "clips": {}}
+    monkeypatch.setattr(main.jobs, "recording_for", lambda t, v=None: t.narration if t.narration.get("provider") == "elevenlabs" else None)
     assert main._narration_view(topic(rec)) == {"narration": rec, "narration_state": "ready"}
 
 

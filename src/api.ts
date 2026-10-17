@@ -52,8 +52,15 @@ export function searchTopic(query: string) {
   });
 }
 
-export function getTopic(slug: string) {
-  return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}`);
+export function getTopic(slug: string, voice?: string) {
+  const q = voice ? `?voice=${encodeURIComponent(voice)}` : '';
+  return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}${q}`);
+}
+
+export interface VoiceOption { id: string; name: string; description: string; preview_url: string | null }
+
+export function listVoices() {
+  return request<{ default: string | null; voices: VoiceOption[] }>('/voices');
 }
 
 export function listTopics() {

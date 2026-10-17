@@ -17,7 +17,7 @@ from sqlalchemy import select
 from .config import get_settings
 from .db import Session, Topic
 from .generator import GenerationError, research, write_lesson
-from .narration import NarrationError, QuotaExhausted, narrate_lesson, narration_is_current, narrator_target
+from .narration import NarrationError, QuotaExhausted, narrate_lesson, pick_voice, narration_is_current, narrator_target
 
 log = logging.getLogger(__name__)
 
@@ -78,68 +78,93 @@ async def _run(topic_id: int) -> None:
             await _update(topic_id, status="failed", progress=None, error="Something went wrong while building this lesson.")
 
 
-# Don't hammer the TTS quota: after a failure, wait before trying the same lesson again.
-_narration_failed: dict[int, float] = {}
-# Chapters of the preferred voice recorded so far, shared with the player while the rest are made.
-_partial: dict[int, dict] = {}
+# Don't hammer the TTS quota: after a failure, wait before trying the same lesson and voice again.
+_narration_failed: dict[tuple[int, str], float] = {}
+# Chapters of a voice recorded so far, shared with the player while the rest are made.
+_partial: dict[tuple[int, str], dict] = {}
+_narrators: dict[tuple[int, str], asyncio.Task] = {}
 _quota_until = 0.0
 
 
-def narrating(topic_id: int) -> bool:
-    task = _running.get(-topic_id)
+def recording_for(topic: Topic, voice: str | None) -> dict | None:
+    """The saved recording of this lesson in `voice` (recordings are kept per voice)."""
+    v = pick_voice(voice)
+    rec = (topic.voices or {}).get(v)
+    if rec:
+        return rec
+    # Recordings saved before voices were kept separately.
+    n = topic.narration
+    if n and n.get("provider") == "elevenlabs" and n.get("voice") == v:
+        return n
+    return None
+
+
+def narrating(topic_id: int, voice: str | None = None) -> bool:
+    task = _narrators.get((topic_id, pick_voice(voice)))
     return task is not None and not task.done()
 
 
-def enqueue_narration(topic_id: int) -> None:
-    """Record narration for a lesson: right after it's generated, or when an older lesson is first opened."""
-    if narrating(topic_id) or not get_settings().narrator:
+def enqueue_narration(topic_id: int, voice: str | None = None) -> None:
+    """Record a lesson in one voice: right after it's generated, or when someone opens it in that voice."""
+    v = pick_voice(voice)
+    if narrating(topic_id, v) or not get_settings().narrator or narration_blocked(topic_id, v):
         return
-    if narration_blocked(topic_id):
-        return
-    task = asyncio.create_task(_narrate(topic_id))
-    _running[-topic_id] = task
-    task.add_done_callback(lambda _: _running.pop(-topic_id, None))
+    key = (topic_id, v)
+    task = asyncio.create_task(_narrate(topic_id, v))
+    _narrators[key] = task
+    task.add_done_callback(lambda _: _narrators.pop(key, None))
 
 
-async def _narrate(topic_id: int) -> None:
+async def _narrate(topic_id: int, voice: str) -> None:
+    key = (topic_id, voice)
     async with _tts:
         async with Session() as s:
             topic = await s.get(Topic, topic_id)
-            if topic is None or topic.lesson is None or narration_is_current(topic.narration, topic.lesson):
+            if topic is None or topic.lesson is None:
+                return
+            if narration_is_current(recording_for(topic, voice) or topic.narration, topic.lesson, voice):
                 return
             slug, lesson = topic.slug, topic.lesson
         global _quota_until
+
         async def on_clip(record: dict) -> None:
-            _partial[topic_id] = record
+            _partial[key] = record
 
         try:
-            narration = await narrate_lesson(slug, lesson, on_clip)
-            await _update(topic_id, narration=narration)
-            if (narration.get("provider"), narration.get("voice")) != narrator_target():
-                # Saved from the fallback voice: try the preferred one again later, not on every visit.
-                _narration_failed[topic_id] = time.time()
+            narration = await narrate_lesson(slug, lesson, on_clip, voice)
+            if narration.get("provider") == "elevenlabs":
+                async with Session() as s:
+                    topic = await s.get(Topic, topic_id)
+                    if topic is not None:
+                        topic.voices = {**(topic.voices or {}), voice: narration}
+                        await s.commit()
+            else:
+                # Saved from the fallback voice: keep it as the stand-in, and try the
+                # chosen voice again later, not on every visit.
+                await _update(topic_id, narration=narration)
+                _narration_failed[key] = time.time()
         except QuotaExhausted as e:
-            _narration_failed[topic_id] = time.time()
+            _narration_failed[key] = time.time()
             if get_settings().narrator == "gemini":
                 # Only Gemini is configured and its daily allowance is gone: pause everywhere.
                 _quota_until = time.time() + 3 * 3600
             log.warning("narration out of allowance for %s: %s", slug, e)
         except (NarrationError, httpx.HTTPError) as e:
-            _narration_failed[topic_id] = time.time()
+            _narration_failed[key] = time.time()
             # Lessons still play with the browser voice.
             log.warning("narration failed for %s: %s", slug, e)
         finally:
-            _partial.pop(topic_id, None)
+            _partial.pop(key, None)
 
 
-def partial_narration(topic_id: int) -> dict | None:
-    return _partial.get(topic_id)
+def partial_narration(topic_id: int, voice: str | None = None) -> dict | None:
+    return _partial.get((topic_id, pick_voice(voice)))
 
 
-def narration_blocked(topic_id: int) -> bool:
-    """The preferred voice recently failed (or ran out), so the fallback plays for now."""
+def narration_blocked(topic_id: int, voice: str | None = None) -> bool:
+    """This voice recently failed (or ran out) for this lesson, so the fallback plays for now."""
     now = time.time()
-    return now < _quota_until or now - _narration_failed.get(topic_id, 0) < 1800
+    return now < _quota_until or now - _narration_failed.get((topic_id, pick_voice(voice)), 0) < 1800
 
 
 async def resume_pending() -> None:

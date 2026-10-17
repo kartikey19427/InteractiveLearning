@@ -12,6 +12,8 @@ import { DEFAULT_PALETTE } from '../lesson/palette';
 import { advanceClock, clipUsable, idleSpeech, sentenceAt, type SpeechClock } from './clock';
 import { chooseVoice, VoiceGate } from './voiceGate';
 import TopBar from '../components/TopBar';
+import VoiceMenu from '../components/VoiceMenu';
+import type { VoiceOption } from '../api';
 
 
 const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -54,8 +56,9 @@ export type { NarrationState };
 
 const voiceKey = (n: Narration | null | undefined) => (n ? `${n.provider ?? 'gemini'}:${n.voice}` : null);
 
-export default function LessonPlayer({ lesson, narration: narrationProp, narrationState = 'none', slug }: {
+export default function LessonPlayer({ lesson, narration: narrationProp, narrationState = 'none', slug, startIndex = 0, voices = [], voiceId = '', onVoiceChange }: {
   lesson: Lesson; narration?: Narration | null; narrationState?: NarrationState; slug?: string;
+  startIndex?: number; voices?: VoiceOption[]; voiceId?: string; onVoiceChange?: (id: string, atIndex: number) => void;
 }) {
   // One voice per visit: the first voice that speaks is locked in. Chapters of
   // that same recording keep arriving while it's prepared; any other voice is
@@ -77,7 +80,7 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
     [steps, narration],
   );
 
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), lesson.steps.length - 1));
   // Bumped on every navigation so revisiting or restarting a step remounts its activity.
   const [visit, setVisit] = useState(0);
   const [playing, setPlaying] = useState(!reducedMotion);
@@ -376,6 +379,12 @@ export default function LessonPlayer({ lesson, narration: narrationProp, narrati
   return (
     <div className="app fixed">
       <TopBar crumb={<>{crumbs.map((c) => <span key={c}>{c} / </span>)}<b>{lesson.title}</b></>} search>
+        <VoiceMenu
+          voices={voices}
+          selected={voiceId}
+          onOpen={() => { if (playing) togglePlay(); }}
+          onChange={(id) => { if (id !== voiceId) { stopVoice(); onVoiceChange?.(id, index); } }}
+        />
         <button className="btn" type="button" aria-pressed={voice} onClick={() => toggleVoice(!voice)}>
           Read aloud: {voice ? 'On' : 'Off'}
         </button>

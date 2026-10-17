@@ -37,6 +37,8 @@ class Topic(Base):
     lesson: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # Recorded narration: {"voice", "model", "clips": {step_id: {"url", "bounds"}}}
     narration: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Recordings per ElevenLabs voice: {voice_id: narration record}. `narration` holds the fallback.
+    voices: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     model: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=utcnow)
@@ -57,6 +59,7 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # Columns added after the first release.
         await conn.execute(text("ALTER TABLE topics ADD COLUMN IF NOT EXISTS narration JSONB"))
+        await conn.execute(text("ALTER TABLE topics ADD COLUMN IF NOT EXISTS voices JSONB"))
 
 
 async def get_session():

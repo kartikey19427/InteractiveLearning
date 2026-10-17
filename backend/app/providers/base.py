@@ -47,6 +47,6 @@ class Provider(Protocol):
         """Plain text answer with no tools (used to write notes from search results)."""
         ...
 
-    async def write(self, system: str, turns: list[Turn]) -> Reply:
+    async def write(self, system: str, turns: list[Turn], max_tokens: int | None = None) -> Reply:
         """Long-form generation over a conversation (used for lesson JSON and repairs)."""
         ...

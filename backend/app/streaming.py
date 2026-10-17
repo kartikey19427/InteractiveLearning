@@ -242,39 +242,147 @@ def outline_from_lesson(lesson: dict) -> Outline:
     )
 
 
+# ---------- one call for the whole lesson ----------
+
+# The single call's output limit. A full lesson (8-10 chapters of scene JSON) is roughly 12-20k
+# tokens, so this leaves room without letting a runaway reply eat the whole window.
+LESSON_MAX_TOKENS = 32_768
+
+SHORTER = [
+    "\n\nIMPORTANT: your last draft was cut off for length. Write a SHORTER lesson: 6 to 7 steps in total, at most 4 "
+    "narration sentences per video, and simpler scenes (fewer elements).",
+    "\n\nIMPORTANT: your last two drafts were cut off for length. Write a COMPACT lesson: 5 to 6 steps in total "
+    "(intro, 2 chapters, 1 activity, quiz), 3 narration sentences per video, and very simple scenes.",
+]
+
+
+class _Planned:
+    """A step's own id and kind, so a step can be checked without a prior outline."""
+
+    def __init__(self, step: dict):
+        self.id, self.kind = step.get("id"), step.get("kind")
+
+
+def _bad_steps(steps: list, functions: dict) -> dict[int, list[str]]:
+    """Problems per step index (0-based), each step checked on its own, plus whole-lesson rules mapped to a step."""
+    problems: dict[int, list[str]] = {}
+    for i, st in enumerate(steps):
+        if not isinstance(st, dict):
+            problems[i] = ["this step must be a JSON object"]
+            continue
+        p = step_problems(st, i, _Planned(st), functions)  # type: ignore[arg-type]
+        if p:
+            problems[i] = p
+    if steps and isinstance(steps[-1], dict) and steps[-1].get("kind") != "quiz":
+        problems.setdefault(len(steps) - 1, []).append("the last step must be the quiz")
+    seen: dict[str, int] = {}
+    for i, st in enumerate(steps):
+        sid = st.get("id") if isinstance(st, dict) else None
+        if sid in seen:
+            problems.setdefault(i, []).append(f'step id "{sid}" is already used; ids must be unique')
+        elif sid:
+            seen[sid] = i
+    return problems
+
+
+def _full_prompt(title: str, query: str, notes: str, sources: list[dict[str, str]]) -> str:
+    source_list = "\n".join(f"- {s['title']}: {s['url']}" for s in sources[:30]) or "(none captured)"
+    return (
+        f"Topic: {title}\nThe learner searched for: {query}\n\n<research_notes>\n{notes}\n</research_notes>\n\n"
+        f"<source_urls>\n{source_list}\n</source_urls>\n\n"
+        "Write the whole lesson as one JSON object: title, eyebrow, summary, palette, functions, steps, sources, note. "
+        "Quizzes and activities may only test what the chapters before them taught."
+    )
+
+
+async def write_whole_lesson(title: str, query: str, notes: str, sources: list[dict[str, str]],
+                             progress: Callable[[str], Awaitable[None]]) -> dict:
+    """One Gemini call writes the lesson. A cut-off reply is retried as a shorter request; broken chapters
+    are sent back alone for repair, not the whole lesson."""
+    provider = get_provider()
+    system = _writer_system()
+    base = _full_prompt(title, query, notes, sources)
+    turns = [Turn("user", base)]
+    shorter = 0
+    raw: dict | None = None
+    reply = None
+    while raw is None:
+        reply = await provider.write(system, turns, max_tokens=LESSON_MAX_TOKENS)
+        parsed = None
+        if not reply.truncated:
+            try:
+                parsed = _extract_json(reply.text)
+            except ValueError:
+                parsed = None
+        if parsed is None:
+            if shorter >= len(SHORTER):
+                raise GenerationError("The lesson was too long to write in one go. Please try again.")
+            await progress("The draft was cut off; writing a shorter one…")
+            turns = [Turn("user", base + SHORTER[shorter])]
+            shorter += 1
+            continue
+        raw = parsed
+
+    steps: list = list(raw.get("steps") or [])
+    functions = raw.get("functions") or {}
+    for attempt in range(MAX_REPAIRS + 1):
+        problems = _bad_steps(steps, functions)
+        if not problems:
+            flagged = await _check_chunk([], [s for s in steps if isinstance(s, dict)], {s.get("id") for s in steps if isinstance(s, dict)})
+            by_id = {s.get("id"): i for i, s in enumerate(steps) if isinstance(s, dict)}
+            for sid, text in flagged.items():
+                if sid in by_id:
+                    problems[by_id[sid]] = [text]
+        if not problems:
+            break
+        if attempt == MAX_REPAIRS:
+            raise GenerationError("Some chapters of this lesson didn't pass checks. Please try again.")
+        await progress(f"Fixing {len(problems)} chapter{'s' if len(problems) != 1 else ''}…")
+        nums = sorted(i + 1 for i in problems)
+        listing = "\n".join(f'- step {i + 1}: ' + "; ".join(problems[i]) for i in sorted(problems))
+        turns = [*turns, Turn("assistant", reply.text if reply else ""), Turn("user", (
+            f"These steps failed checks:\n{listing}\n\nReply with JSON only: "
+            f'{{"steps": {{{", ".join(f"\"{n}\": {{...corrected step {n}...}}" for n in nums)}}}}}'
+            " containing ONLY those steps (numbered as above)."
+        ))]
+        fix = await provider.write(system, turns, max_tokens=LESSON_MAX_TOKENS)
+        reply = fix
+        try:
+            fixed = _extract_json(fix.text).get("steps") or {}
+        except ValueError:
+            continue
+        if isinstance(fixed, dict):
+            for key, st in fixed.items():
+                if str(key).isdigit() and 0 < int(key) <= len(steps) and isinstance(st, dict):
+                    steps[int(key) - 1] = st
+    lesson = {k: raw.get(k) for k in ("title", "eyebrow", "summary", "palette", "functions", "sources", "note")}
+    lesson["palette"] = lesson.get("palette") or {}
+    lesson["functions"] = functions
+    lesson["sources"] = lesson.get("sources") or [s for s in sources[:6]]
+    lesson["steps"] = steps
+    lesson["outline"] = [{"id": s["id"], "kind": s["kind"], "title": s.get("title", ""), "tag": s.get("tag", "")} for s in steps]
+    lesson["complete"] = True
+    return lesson
+
+
 async def stream_lesson(title: str, query: str, notes: str, sources: list[dict[str, str]],
                         progress: Callable[[str], Awaitable[None]], save: Save, on_playable: Callable[[], Awaitable[None]],
                         resume: dict | None = None) -> dict:
-    """Write the lesson outline-first, a few chapters per call, saving after each chunk. `resume` carries on a partial one."""
+    """New lessons: one Gemini call writes everything, then it's saved together. The player still loads
+    only the current and next chapter. A half-written lesson (from before) finishes its missing chapters in one call."""
     if resume and resume.get("outline"):
         o, lesson = outline_from_lesson(resume), resume
+        if len(lesson["steps"]) < len(o.steps):
+            idxs = list(range(len(lesson["steps"]), len(o.steps)))
+            await progress(f"Writing the remaining {len(idxs)} chapter{'s' if len(idxs) != 1 else ''}…")
+            steps, new_fns = await write_chunk(title, notes, o, idxs, lesson["steps"], lesson["functions"])
+            lesson = {**lesson, "functions": {**lesson["functions"], **new_fns}, "steps": [*lesson["steps"], *steps]}
+        lesson = {**lesson, "complete": True}
     else:
-        await progress("Planning the chapters…")
-        o = await write_outline(title, query, notes, sources)
-        lesson = lesson_from_outline(o)
-        await save(lesson)
-    first = True
-    while len(lesson["steps"]) < len(o.steps):
-        start = len(lesson["steps"])
-        idxs = list(range(start, min(start + CHUNK, len(o.steps))))
-        await progress(f"Writing chapters {idxs[0] + 1}–{idxs[-1] + 1} of {len(o.steps)}…")
-        for wait in (60, 90, 120, None):
-            try:
-                steps, new_fns = await write_chunk(title, notes, o, idxs, lesson["steps"], lesson["functions"])
-                break
-            except ProviderUnavailable:
-                # Gemini's per-minute limit: wait the full delay and try the same chapters again.
-                if wait is None:
-                    raise
-                await progress(f"Gemini is busy; retrying chapter {idxs[0] + 1} in {wait} seconds…")
-                await asyncio.sleep(wait)
-        lesson = {**lesson, "functions": {**lesson["functions"], **new_fns}, "steps": [*lesson["steps"], *steps]}
-        await save(lesson)
-        if first:
-            await on_playable()
-            first = False
-    lesson = {**lesson, "complete": True}
+        await progress("Writing the lesson…")
+        lesson = await write_whole_lesson(title, query, notes, sources, progress)
+    await save(lesson)
     problems = final_check(lesson)
     if problems:
-        log.warning("streamed lesson %r has whole-lesson problems: %s", title, problems[:3])
+        log.warning("lesson %r has whole-lesson problems: %s", title, problems[:3])
     return lesson

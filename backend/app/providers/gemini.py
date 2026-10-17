@@ -125,13 +125,13 @@ class GeminiProvider:
         })
         return self._text(data)[0].strip()
 
-    async def write(self, system: str, turns: list[Turn]) -> Reply:
+    async def write(self, system: str, turns: list[Turn], max_tokens: int | None = None) -> Reply:
         data = await self._call({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [
                 {"role": "model" if t.role == "assistant" else "user", "parts": [{"text": t.text}]} for t in turns
             ],
-            "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 65536},
+            "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": max_tokens or 65536},
         })
         text, finish = self._text(data)
         return Reply(text=text, truncated=finish == "MAX_TOKENS")

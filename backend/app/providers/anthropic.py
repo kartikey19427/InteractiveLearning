@@ -101,9 +101,9 @@ class AnthropicProvider:
         _check_refusal(message)
         return "".join(b.text for b in message.content if b.type == "text").strip()
 
-    async def write(self, system: str, turns: list[Turn]) -> Reply:
+    async def write(self, system: str, turns: list[Turn], max_tokens: int | None = None) -> Reply:
         message = await self._guard(self._stream(
-            max_tokens=64000,
+            max_tokens=max_tokens or 64000,
             # Stable across every lesson, so cache it.
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": t.role, "content": t.text} for t in turns],

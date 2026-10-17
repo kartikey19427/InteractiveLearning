@@ -5,6 +5,73 @@ import type { Num, SceneElement, Shot, Str, NetworkEl, ParticlesEl, ScatterEl, C
 export const STAGE_W = 800;
 export const STAGE_H = 450;
 export const DEFAULT_BG = '#0F1914';
+export const LIGHT_BG = '#F3F5F2';
+
+// ---------- light / dark ----------
+// The stage follows the page theme. Lessons are written for a dark stage, so in
+// light mode the stage gets a light background and colors meant for a dark one
+// (pale lines, light text) are darkened to stay readable. Colors that are already
+// mid-tone or saturated, and everything on the warm illustrated look, are left alone.
+
+export type Theme = 'light' | 'dark';
+let activeTheme: Theme = 'dark';
+let activeLook: 'blueprint' | 'world' | null = null;
+
+export function detectTheme(): Theme {
+  const t = typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined;
+  if (t === 'light' || t === 'dark') return t;
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+export function setRenderTheme(t: Theme) { activeTheme = t; }
+export const onLightStage = () => activeTheme === 'light' && activeLook !== 'world';
+
+/** The stage's own background for a scene, following the theme. */
+export function stageBackground(scene?: string): string {
+  if (activeTheme !== 'light') return scene ?? DEFAULT_BG;
+  if (!scene) return LIGHT_BG;
+  const [, , l] = rgbToHsl(parseColor(scene) ?? [15, 25, 20, 1]);
+  return l < 0.35 ? LIGHT_BG : scene;
+}
+
+function parseColor(c: string): [number, number, number, number] | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split('').map((x) => x + x).join('') : hex[1];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 1];
+  }
+  const m = /^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:[ ,/]+([\d.]+))?\s*\)$/i.exec(c.trim());
+  return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]] : null;
+}
+
+function rgbToHsl([r, g, b]: [number, number, number, number]): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, s, l];
+}
+
+const adaptCache = new Map<string, string>();
+/** Darken a pale color (made for a dark stage) so it reads on the light stage. */
+export function adaptColor(c: string): string {
+  if (!onLightStage()) return c;
+  const hit = adaptCache.get(c);
+  if (hit) return hit;
+  const rgba = parseColor(c);
+  let out = c;
+  if (rgba) {
+    const [h, s, l] = rgbToHsl(rgba);
+    if (l > 0.58) {
+      const l2 = Math.max(0.1, Math.min(0.38, 1 - l + 0.14));
+      const s2 = Math.min(1, s * 1.1 + 0.05);
+      out = `hsla(${Math.round(h)}, ${Math.round(s2 * 100)}%, ${Math.round(l2 * 100)}%, ${rgba[3]})`;
+    }
+  }
+  adaptCache.set(c, out);
+  return out;
+}
 
 export interface RenderCtx {
   ctx: CanvasRenderingContext2D;
@@ -58,7 +125,14 @@ export function color(v: Str | undefined, env: Env, palette: Record<string, stri
   if (v === undefined) return undefined;
   const c = str(v, env);
   if (!c) return undefined;
-  return c.startsWith('@') ? palette[c.slice(1)] ?? '#E8F0E6' : c;
+  return adaptColor(c.startsWith('@') ? palette[c.slice(1)] ?? '#E8F0E6' : c);
+}
+
+/** Pure-white text without a box sits on a coloured shape (N/S poles, badges); keep it white. */
+function keepWhite(v: Str | undefined, env: Env): boolean {
+  if (v === undefined) return false;
+  const c = str(v, env).trim().toLowerCase();
+  return c === '#fff' || c === '#ffffff' || c === 'white';
 }
 
 export function resolveColor(c: string, palette: Record<string, string>): string {
@@ -120,9 +194,32 @@ function seeded(key: string, count: number, seed: number, dims: number): number[
 
 // ---------- drawing ----------
 
+/** Fills keep their authored hue; only text and lines are darkened. */
+function withoutAdapt<T>(fn: () => T): T {
+  const prev = activeTheme;
+  activeTheme = 'dark';
+  try { return fn(); } finally { activeTheme = prev; }
+}
+
+const fillCache = new Map<string, string>();
+/** Fills made for a dark stage (dark panels, slabs) become pale tints on the light stage. */
+function adaptFill(c: string | undefined): string | undefined {
+  if (!c || !onLightStage()) return c;
+  const hit = fillCache.get(c);
+  if (hit) return hit;
+  const rgba = parseColor(c);
+  let out = c;
+  if (rgba) {
+    const [h, sat, l] = rgbToHsl(rgba);
+    if (l < 0.3) out = `hsla(${Math.round(h)}, ${Math.round(Math.min(sat, 0.6) * 55)}%, ${Math.round((0.95 - l * 0.35) * 100)}%, ${rgba[3]})`;
+  }
+  fillCache.set(c, out);
+  return out;
+}
+
 function fillStroke(rc: RenderCtx, el: { fill?: Str; stroke?: Str; lineWidth?: Num }, env: Env, path?: Path2D) {
   const { ctx, palette } = rc;
-  const f = color(el.fill, env, palette), s = color(el.stroke, env, palette);
+  const f = adaptFill(withoutAdapt(() => color(el.fill, env, palette))), s = color(el.stroke, env, palette);
   if (f) { ctx.fillStyle = f; path ? ctx.fill(path) : ctx.fill(); }
   if (s) { ctx.strokeStyle = s; ctx.lineWidth = num(el.lineWidth, env, 2); path ? ctx.stroke(path) : ctx.stroke(); }
 }
@@ -207,10 +304,10 @@ export function drawLabel(rc: RenderCtx, text: string, x0_: number, y0_: number,
   if (o.bg) {
     const m = ctx.measureText(text).width;
     const x0 = o.align === 'left' ? x : o.align === 'right' ? x - m : x - m / 2;
-    ctx.fillStyle = rc.look === 'world' ? 'rgba(255,248,235,.92)' : 'rgba(15,25,20,.78)';
+    ctx.fillStyle = rc.look === 'world' ? 'rgba(255,248,235,.92)' : onLightStage() ? 'rgba(255,255,255,.9)' : 'rgba(15,25,20,.78)';
     ctx.fillRect(x0 - 6, y - fs * 0.8, m + 12, fs * 1.6);
   }
-  ctx.fillStyle = o.color ?? (rc.look === 'world' ? '#3A2A1A' : '#E8F0E6');
+  ctx.fillStyle = o.color ?? (rc.look === 'world' ? '#3A2A1A' : onLightStage() ? '#1F2328' : '#E8F0E6');
   ctx.fillText(text, x, y);
   return y;
 }
@@ -318,6 +415,23 @@ const grain = (() => { const r = rng(7); return Array.from({ length: 260 }, () =
 /** Paint a shot's backdrop: dark navy blueprint, or warm illustrated paper. */
 export function drawLook(rc: RenderCtx, look: 'blueprint' | 'world') {
   const { ctx } = rc;
+  if (look === 'blueprint' && activeTheme === 'light') {
+    // Blueprint on pale paper: pale blue-white ground, a faint blue grid, soft edge shading.
+    ctx.fillStyle = '#EAF0FB';
+    ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+    ctx.strokeStyle = 'rgba(40,70,140,.10)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x <= STAGE_W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, STAGE_H); }
+    for (let y = 0; y <= STAGE_H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(STAGE_W, y); }
+    ctx.stroke();
+    const g = ctx.createRadialGradient(STAGE_W / 2, STAGE_H / 2, 160, STAGE_W / 2, STAGE_H / 2, 520);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(90,110,170,.20)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+    return;
+  }
   if (look === 'blueprint') {
     ctx.fillStyle = '#0A0B1E';
     ctx.fillRect(0, 0, STAGE_W, STAGE_H);
@@ -364,7 +478,9 @@ export function drawShot(rc: RenderCtx, shot: Shot, env: Env, p: number, s: numb
   const { ctx } = rc;
   drawLook(rc, shot.look);
   const prevLook = rc.look;
+  const prevActive = activeLook;
   rc.look = shot.look;
+  activeLook = shot.look;
   const z0 = shot.camera?.zoom?.[0] ?? 1;
   const z1 = shot.camera?.zoom?.[1] ?? z0;
   const [px, py] = shot.camera?.pan ?? [0, 0];
@@ -376,6 +492,7 @@ export function drawShot(rc: RenderCtx, shot: Shot, env: Env, p: number, s: numb
   ctx.translate(-STAGE_W / 2, -STAGE_H / 2);
   drawElements(rc, shot.elements, { ...env, t: s, p });
   rc.look = prevLook;
+  activeLook = prevActive;
   ctx.restore();
   if (s < 0.2) {
     // A quick fade up from black makes the cut between shots read as a cut.
@@ -491,7 +608,7 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
     }
     case 'label':
       drawLabel(rc, str(el.text, env), num(el.x, env), num(el.y, env), {
-        color: color(el.color, env, rc.palette),
+        color: el.bg === false && keepWhite(el.color, env) ? '#FFFFFF' : color(el.color, env, rc.palette),
         bg: el.bg ?? true,
         align: el.align,
         size: num(el.size, env, 1),
@@ -500,7 +617,7 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
       break;
     case 'callout': {
       const x = num(el.x, env), y = num(el.y, env);
-      const col = color(el.color, env, rc.palette) ?? (rc.look === 'world' ? '#3A2A1A' : '#E8F0E6');
+      const col = color(el.color, env, rc.palette) ?? (rc.look === 'world' ? '#3A2A1A' : onLightStage() ? '#1F2328' : '#E8F0E6');
       const text = str(el.text, env);
       const lx = clampX(rc, text, num(el.lx, env), { bg: true });
       const ly = placeLabel(rc, text, lx, num(el.ly, env), { bg: true });

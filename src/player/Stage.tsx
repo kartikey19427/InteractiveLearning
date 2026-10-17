@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MutableRefObject, type ReactNode } from 'react';
-import { DEFAULT_BG, STAGE_H, STAGE_W, type RenderCtx } from '../lesson/scene';
+import { detectTheme, setRenderTheme, stageBackground, STAGE_H, STAGE_W, type RenderCtx } from '../lesson/scene';
 
 export interface FrameHandle {
   tick?: (dt: number) => void;
@@ -56,7 +56,8 @@ export default function Stage({ frame, palette, tag, overlayRef, overlayActive, 
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1;
         ctx.setLineDash([]);
-        ctx.fillStyle = f?.background ?? DEFAULT_BG;
+        setRenderTheme(detectTheme());
+        ctx.fillStyle = stageBackground(f?.background);
         ctx.fillRect(0, 0, cv.width, cv.height);
         ctx.save();
         ctx.setTransform(s, 0, 0, s, ox, oy);

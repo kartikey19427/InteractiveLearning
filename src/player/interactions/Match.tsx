@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MatchStep, MatchToken } from '../../lesson/types';
 import { evaluate, interpolate, type Env } from '../../lesson/expr';
-import { drawElements, resolveColor } from '../../lesson/scene';
+import { detectTheme, drawElements, resolveColor } from '../../lesson/scene';
 import type { StepProps } from '../LessonPlayer';
 import { DEFAULT_PALETTE } from '../../lesson/palette';
 import Shell from './Shell';
@@ -103,7 +103,7 @@ export default function Match({ step, frame, overlay, baseEnv, onGoal, onNext, c
       draw(rc) {
         if (scene) drawElements(rc, scene.elements, baseEnv);
         // Faint divider above the tray of matched pairs.
-        rc.ctx.strokeStyle = 'rgba(232,240,230,.12)';
+        rc.ctx.strokeStyle = detectTheme() === 'light' ? 'rgba(30,40,35,.16)' : 'rgba(232,240,230,.12)';
         rc.ctx.lineWidth = 1;
         rc.ctx.beginPath();
         rc.ctx.moveTo(24, TRAY_TOP);
@@ -227,7 +227,7 @@ export default function Match({ step, frame, overlay, baseEnv, onGoal, onNext, c
               <circle
                 r={R}
                 fill="none"
-                stroke={bad.includes(t.id) ? '#F08A7C' : good.includes(t.id) ? '#6FCB91' : sel === t.id ? '#B7A0EA' : '#F2EFE3'}
+                stroke={bad.includes(t.id) ? '#F08A7C' : good.includes(t.id) ? '#6FCB91' : sel === t.id ? '#B7A0EA' : 'currentColor'}
                 strokeWidth={bad.includes(t.id) || good.includes(t.id) || sel === t.id ? 6 : 2.5}
               />
             </g>

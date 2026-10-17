@@ -7,7 +7,7 @@
   --primary: #1F2328; --primary-ink: #FFFFFF;
   --accent: #2563EB; --accent-ink: #FFFFFF;
   --good: #1A7F4B; --bad: #B42318; --warn: #9A5B0B;
-  --stage: #0F1914; --stage-ink: #E8F0E6;
+  --stage: #F3F5F2; --stage-ink: #1F2328;
   --f-body: "IBM Plex Sans", system-ui, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
   --f-display: var(--f-body);
@@ -21,6 +21,7 @@
     --primary: #E8EAED; --primary-ink: #111315;
     --accent: #7AA2F7; --accent-ink: #0E1630;
     --good: #5FC48C; --bad: #F2867A; --warn: #E3A04A;
+    --stage: #0F1914; --stage-ink: #E8F0E6;
     color-scheme: dark;
   }
 }
@@ -31,6 +32,7 @@
   --primary: #E8EAED; --primary-ink: #111315;
   --accent: #7AA2F7; --accent-ink: #0E1630;
   --good: #5FC48C; --bad: #F2867A; --warn: #E3A04A;
+  --stage: #0F1914; --stage-ink: #E8F0E6;
   color-scheme: dark;
 }
 
@@ -161,18 +163,18 @@ h2 { font-size: 18px; }
 .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--stage); border-radius: 10px; overflow: hidden; touch-action: manipulation; }
 .stage canvas, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .stage svg { touch-action: none; pointer-events: none; }
-.stage svg .drag { pointer-events: auto; cursor: grab; outline: none; }
+.stage svg .drag { pointer-events: auto; cursor: grab; outline: none; color: var(--stage-ink); }
 .stage svg .drag:active { cursor: grabbing; }
 .stage svg .drag:focus-visible circle:last-of-type { stroke: #7AA2F7; }
-.stage svg text { font-family: var(--f-body); font-size: var(--fs, 16px); font-weight: 600; fill: #E8F0E6; user-select: none; pointer-events: none; }
+.stage svg text { font-family: var(--f-body); font-size: var(--fs, 16px); font-weight: 600; fill: var(--stage-ink); user-select: none; pointer-events: none; }
 .stage svg text.big { font-size: calc(var(--fs, 16px) * 1.4); font-weight: 700; }
 .stage svg text.dk { fill: #17221C; }
-.stage svg text.mu { fill: #9DB0A2; font-weight: 400; }
+.stage svg text.mu { fill: var(--muted); font-weight: 400; }
 .stage svg text.sm { font-size: calc(var(--fs, 16px) * .9); }
 .stage svg text.ok { fill: #6FCB91; }
 .stage svg .shake { animation: shake .45s ease; }
 @keyframes shake { 20% { transform: translateX(-10px); } 40% { transform: translateX(9px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(4px); } }
-.tag { position: absolute; left: 14px; top: 14px; font: 500 11.5px var(--f-mono); letter-spacing: .04em; color: #1F2328; background: rgba(255,255,255,.92); padding: 4px 9px; border-radius: 6px; pointer-events: none; }
+.tag { position: absolute; left: 14px; top: 14px; font: 500 11.5px var(--f-mono); letter-spacing: .04em; color: #1F2328; background: rgba(255,255,255,.92); border: 1px solid rgba(0,0,0,.12); padding: 4px 9px; border-radius: 6px; pointer-events: none; }
 .toast {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%); max-width: min(86%, 640px);
   padding: 9px 16px; border-radius: 10px; font: 600 15px var(--f-body); line-height: 1.35; text-align: center;

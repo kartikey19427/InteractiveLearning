@@ -77,6 +77,11 @@ h2 { font-size: 18px; }
   height: 56px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 20px;
   background: var(--surface); border-bottom: 1.5px solid var(--line);
 }
+.logo-img { display: block; height: 30px; width: auto; }
+.logo-dark { display: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .logo-light { display: none; } :root:not([data-theme="light"]) .logo-dark { display: block; } }
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
 .logo { width: 28px; height: 28px; border-radius: 7px; background: var(--primary); color: var(--primary-ink); display: grid; place-items: center; flex: none; }
 .crumb { font-size: 13px; color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

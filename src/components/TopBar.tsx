@@ -2,15 +2,13 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { searchTopic } from '../api';
 
+/** The Askademy logo; the light and dark artwork swap with the theme (see .brand in index.css). */
 export function Logo() {
   return (
-    <span className="logo" aria-hidden="true">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 4.5 8 2l5 2.5L8 7 3 4.5Z" />
-        <path d="M3 8l5 2.5L13 8" />
-        <path d="M3 11.5 8 14l5-2.5" />
-      </svg>
-    </span>
+    <>
+      <img className="logo-img logo-light" src="/brand/askademy-light.svg" alt="Askademy" height="30" />
+      <img className="logo-img logo-dark" src="/brand/askademy-dark.svg" alt="Askademy" height="30" />
+    </>
   );
 }
 
@@ -88,7 +86,7 @@ function ThemeToggle() {
 export default function TopBar({ crumb, search = false, children }: { crumb?: ReactNode; search?: boolean; children?: ReactNode }) {
   return (
     <header className="topbar">
-      <Link to="/" className="brand"><Logo />Interactive Learning</Link>
+      <Link to="/" className="brand"><Logo /></Link>
       {crumb && <div className="crumb">{crumb}</div>}
       <div className="sp" />
       {search && <CompactSearch />}

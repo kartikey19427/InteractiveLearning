@@ -95,7 +95,7 @@ export default function TopicPage() {
   const stream = useLessonStream(slug, topic?.lesson ?? null, voiceId, voiceOn);
 
   useEffect(() => {
-    if (topic?.title) document.title = `${topic.title} · Interactive Learning`;
+    if (topic?.title) document.title = `${topic.title} · Askademy`;
   }, [topic?.title]);
 
   const retry = async () => {

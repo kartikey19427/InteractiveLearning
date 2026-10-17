@@ -1,7 +1,28 @@
-# InteractiveLearning
+<p align="center"><img src="public/brand/askademy-light.svg" alt="Askademy" height="48" /></p>
+
+# Askademy
 An AI-Powered Interactive Learning Platform
 
 Search any topic and get an interactive lesson: narrated animated chapters, hands-on activities (sliders, drag-and-match, step-by-step processes) and a quiz. New topics are researched on the web and written by an AI model (Google Gemini by default, or Claude), then saved in Postgres so the next search for the same topic opens instantly.
+
+## AI Builder Cup 2026
+
+- **Theme:** Media, Content & Digital Experiences (education content: creation, personalization and understanding).
+- **Live demo:** _add the Cloud Run URL_
+- **Video (under 3 min):** _add the YouTube / Vimeo / Drive link_
+
+**Problem.** Most explanations online are a wall of text or a passive video. Learners understand faster when they can poke at an idea, but hand-built interactive lessons take an expert days per topic, so they exist for only a few popular subjects.
+
+**What it does.** Anyone types any topic and gets a narrated, animated lesson with hands-on activities and a quiz in about a minute. Every lesson is saved, so the next learner who asks gets it instantly.
+
+**How Gemini is used.** Gemini is the whole pipeline, not a chat box on the side:
+
+1. **Understanding the ask:** Gemini (structured output) names the canonical topic, so different phrasings share one lesson.
+2. **Research:** Gemini with Google Search grounding gathers notes and cites its sources in the lesson.
+3. **Authoring:** one Gemini call writes the full lesson as JSON in a typed format (scenes, animations, activities, quiz). It is validated against a schema and a safe expression checker and sent back to Gemini for repair if anything fails, so generated content is never executed as code.
+4. **Narration:** each chapter is recorded once, on demand, in the learner's chosen voice (Max via ElevenLabs by default, Gemini's voice as the fallback, then the browser's own); the player syncs every animation to the sentence timings.
+
+**Built on Google Cloud.** Frontend and API run as one Cloud Run service (root `Dockerfile`); Gemini API for reasoning, grounding and speech. Planned for scale: Cloud SQL for lessons, Cloud Storage for audio, Cloud Tasks for generation jobs.
 
 ## How it works
 

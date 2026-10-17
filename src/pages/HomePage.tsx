@@ -45,7 +45,7 @@ export default function HomePage() {
   const voice = useVoiceChoice();
 
   useEffect(() => {
-    document.title = 'Interactive Learning';
+    document.title = 'Askademy';
     listTopics().then(setTopics).catch(() => setTopics([]));
   }, []);
 

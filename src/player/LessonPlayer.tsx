@@ -401,11 +401,12 @@ export default function LessonPlayer({
     const k = s.kind === 'pending' ? s.plannedKind : s.kind;
     return k === 'video' ? 'Video' : k === 'quiz' ? 'Quiz' : 'Try it';
   };
-  // Which voice reads this chapter: the recording's provider, or the browser's own voice.
+  // Which voice is reading this chapter, named for the listener: the recording that is playing, or the browser's own voice.
   const recorded = step.kind === 'video' && !!clipFor(step);
-  const voiceName = !recorded ? 'browser'
-    : narration?.provider === 'elevenlabs' ? 'ElevenLabs'
-    : narration?.provider === 'gemini' ? `Gemini ${narration.voice}` : 'recording';
+  const picked = voices.find((v) => v.id === voiceId)?.name ?? '';
+  const voiceName = !recorded ? 'Browser voice'
+    : voiceId === 'charon' ? 'Charon (Gemini)'
+    : `${picked || 'Max'} (ElevenLabs)`;
 
   return (
     <div className="app fixed">

@@ -18,7 +18,7 @@ from .config import get_settings
 from .db import Session, Topic
 from .generator import GenerationError, research
 from .streaming import stream_lesson
-from .narration import NarrationError, QuotaExhausted, narrate_lesson, pick_voice, narration_is_current, narrator_target
+from .narration import NarrationError, QuotaExhausted, narrate_chapter, narrate_lesson, narration_is_current, narrator_target, pick_voice
 
 log = logging.getLogger(__name__)
 
@@ -228,6 +228,11 @@ async def _narrate_chapter(topic_id: int, voice: str, step_id: str) -> None:
         except (NarrationError, httpx.HTTPError) as e:
             _chapter_failed[key] = time.time()
             log.warning("chapter narration failed for %s/%s: %s", slug, step_id, e)
+            return
+        except Exception:
+            # A bug here must not look like "no voice": log it loudly and fall back for this chapter.
+            _chapter_failed[key] = time.time()
+            log.exception("chapter narration crashed for %s/%s", slug, step_id)
             return
         async with Session() as s:
             topic = await s.get(Topic, topic_id)

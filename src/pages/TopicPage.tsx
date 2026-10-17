@@ -56,12 +56,21 @@ export default function TopicPage() {
     <main className="wrap wide">
       <nav className="crumbs"><Link to="/">← Search another topic</Link></nav>
 
-      {error && !topic && <p className="verdict no" role="alert">{error}</p>}
-      {!topic && !error && <p className="note">Loading…</p>}
+      {error && !topic && (
+        <div className="center-state">
+          <section className="panel">
+            <div className="phead"><span className="chip">Problem</span><h2>Couldn't open this lesson</h2></div>
+            <p className="intro" role="alert">{error}</p>
+            <div className="ixbar"><span className="sp" /><Link className="btn primary" to="/">Search another topic</Link></div>
+          </section>
+        </div>
+      )}
+      {!topic && !error && <div className="center-state"><p className="note">Loading…</p></div>}
 
       {topic?.status === 'ready' && topic.lesson && <LessonPlayer lesson={topic.lesson} narration={topic.narration} />}
 
       {topic && topic.status !== 'ready' && topic.status !== 'failed' && (
+        <div className="center-state">
         <section className="panel building" aria-live="polite">
           <div className="phead"><span className="chip ix">New topic</span><h2>Building “{topic.title}”</h2></div>
           <p className="intro">Nobody has asked about this yet, so it's being researched and turned into a lesson. It's saved once it's done, so it opens instantly after this.</p>
@@ -74,14 +83,17 @@ export default function TopicPage() {
           </ol>
           {topic.progress && <p className="note">{topic.progress}</p>}
         </section>
+        </div>
       )}
 
       {topic?.status === 'failed' && (
+        <div className="center-state">
         <section className="panel">
           <div className="phead"><span className="chip">Problem</span><h2>This lesson couldn't be built</h2></div>
           <p className="intro">{topic.error ?? 'Something went wrong while generating it.'}</p>
           <div className="ixbar"><span className="sp" /><button className="btn primary" type="button" onClick={retry}>Try again</button></div>
         </section>
+        </div>
       )}
     </main>
   );

@@ -83,6 +83,11 @@ h2 { font-family: var(--f-display); font-weight: 600; font-size: 22px; margin: 0
 .voice-card audio { width: 100%; }
 .links { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 
+/* Loading, building and error states sit in the middle of the screen. */
+.center-state { min-height: calc(100vh - 110px); display: grid; place-items: center; padding: 24px 0; }
+.center-state > .panel { width: min(640px, 100%); max-width: 640px; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+
 /* building */
 .stages { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .stages li { padding: 8px 12px; border-radius: 8px; background: var(--surface2); color: var(--muted); }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import TopBar from '../components/TopBar';
 
 interface Sample { file: string; provider: string; voice: string; description: string }
 
@@ -26,12 +26,13 @@ export default function VoicesPage() {
   };
 
   return (
-    <main className="wrap">
-      <nav className="crumbs"><Link to="/">← Back to search</Link></nav>
+    <div className="app">
+    <TopBar crumb={<b>Voice samples</b>} />
+    <main className="page">
       <header>
-        <div className="eyebrow">Choosing a narration voice</div>
+        <span className="lbl">Choosing a narration voice</span>
         <h1>Voice samples</h1>
-        <p>Every clip reads the same lesson line. Press play on the ones you want to hear.</p>
+        <p className="intro">Every clip reads the same lesson line. Press play on the ones you want to hear.</p>
       </header>
       {error && <p className="verdict no">Couldn't load the samples.</p>}
       {data && (
@@ -63,5 +64,6 @@ export default function VoicesPage() {
         </>
       )}
     </main>
+    </div>
   );
 }

@@ -256,7 +256,7 @@ export default function Match({ step, frame, overlay, baseEnv, onGoal, onNext, c
   );
 
   return (
-    <Shell title={step.title} intro={step.intro} goalNote={goalNote} completed={completed} onNext={onNext}>
+    <Shell title={step.title} intro={step.intro} goalNote={goalNote} completed={completed} onNext={onNext} status={`${fused.length} of ${step.goal.successes} matched`}>
       <p className="q">{step.question}</p>
       {step.legend && <p className="note">{step.legend}</p>}
       <div className="progress"><div className="bar"><i style={{ width: `${Math.min(1, fused.length / step.goal.successes) * 100}%` }} /></div><span>{fused.length} of {step.goal.successes} matched</span></div>

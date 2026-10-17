@@ -118,14 +118,15 @@ export default function Process({ step, frame, overlay, baseEnv, onGoal, onNext,
   );
 
   return (
-    <Shell title={step.title} intro={step.intro} goalNote={goalNote} completed={completed} onNext={onNext}>
+    <Shell title={step.title} intro={step.intro} goalNote={goalNote} completed={completed} onNext={onNext} status={`Step ${Math.min(stage + 1, step.steps.length)} of ${step.steps.length}`}>
       <div className="steps">
         {step.steps.map((s, i) => (
           <span key={s.label} className={i < stage ? 'fin' : i === stage ? 'on' : ''}>{i + 1} {s.label}</span>
         ))}
       </div>
+      <hr className="rule" />
       <p className={`verdict ${verdict.tone}`}>{verdict.text}</p>
-      <div className="break">
+      <div className="act">
         {step.steps.map((s, i) =>
           s.action.type === 'button' ? (
             <button

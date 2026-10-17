@@ -9,6 +9,7 @@ import Match from './interactions/Match';
 import Process from './interactions/Process';
 import Quiz from './interactions/Quiz';
 import { DEFAULT_PALETTE } from '../lesson/palette';
+import TopBar from '../components/TopBar';
 
 
 const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -63,7 +64,7 @@ export interface Narration {
   clips: Record<string, { url: string; bounds: number[] }>;
 }
 
-export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; narration?: Narration | null }) {
+export default function LessonPlayer({ lesson, narration, slug }: { lesson: Lesson; narration?: Narration | null; slug?: string }) {
   const steps = lesson.steps;
   const palette = useMemo(() => ({ ...DEFAULT_PALETTE, ...lesson.palette }), [lesson.palette]);
   const fns = useMemo(() => defineFunctions(lesson.functions), [lesson.functions]);
@@ -294,41 +295,12 @@ export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; na
     return 0;
   }, [timing]);
 
+  const elapsed = useCallback(() => tRef.current, []);
+
   const caption =
     step.kind === 'video' ? step.narration[sentence]
       : step.kind === 'quiz' ? `Answer ${step.questions.length} questions to finish the lesson.`
         : step.caption ?? 'Your turn: try it yourself.';
-
-  // Size the stage + caption to the space left in the window, keeping 16:9.
-  // The stage column is exactly as wide as the stage, so there's no gap
-  // between it and the panel; the panel takes the rest of the width.
-  const fitRef = useRef<HTMLDivElement>(null);
-  const mainRef = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ w: number; font: number }>({ w: 0, font: 18 });
-  useEffect(() => {
-    const el = fitRef.current;
-    const main = mainRef.current;
-    if (!el || !main) return;
-    const wide = window.matchMedia('(min-width: 1100px)');
-    const measure = () => {
-      const font = (w: number) => Math.round(Math.min(24, Math.max(15, w * 0.02)));
-      if (!wide.matches) { setFit({ w: 0, font: font(el.clientWidth) }); return; }
-      const W = main.clientWidth - 16 - 340; // leave the gutter and the panel's minimum width
-      const H = el.clientHeight;
-      let w = W;
-      for (let i = 0; i < 2; i++) {
-        const capH = font(w) * 1.35 * 2 + 10; // two caption lines
-        w = Math.max(320, Math.min(W, ((H - capH) * 16) / 9));
-      }
-      setFit({ w: Math.floor(w), font: font(w) });
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    ro.observe(main);
-    wide.addEventListener('change', measure);
-    measure();
-    return () => { ro.disconnect(); wide.removeEventListener('change', measure); };
-  }, []);
 
   const common = {
     frame,
@@ -340,100 +312,132 @@ export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; na
     completed: done.has(index),
   };
 
-  return (
-    <div className="lesson">
-      <header>
-        <div className="eyebrow">{lesson.eyebrow}</div>
-        <h1>{lesson.title}</h1>
-        <p>{lesson.summary}</p>
-      </header>
+  // Remember progress per lesson (this browser only) for the search page's "Continue learning".
+  useEffect(() => {
+    if (!slug) return;
+    try {
+      localStorage.setItem(`progress:${slug}`, JSON.stringify({ index, done: done.size, total: steps.length, title: lesson.title, at: Date.now() }));
+    } catch { /* storage unavailable */ }
+  }, [slug, index, done, steps.length, lesson.title]);
 
-      <div className="lesson-main" ref={mainRef} style={fit.w ? { gridTemplateColumns: `${fit.w}px minmax(340px, 1fr)` } : undefined}>
-      <section className="player" aria-label="Lesson player">
-        <div className="stage-fit" ref={fitRef}>
-        <div className="screen" style={{ width: fit.w || undefined }}>
-        <Stage
-          frame={frame}
-          palette={palette}
-          tag={step.tag}
-          overlayRef={setOverlay}
-          overlayActive={step.kind === 'match' || step.kind === 'process'}
-        >
-          {toast && step.kind !== 'video' && (
-            <div key={toast.key} className={`toast ${toast.tone}`} role="status">
-              {toast.tone === 'ok' || toast.tone === 'win' ? '✓ ' : toast.tone === 'bad' ? '✗ ' : ''}{toast.text}
+  const crumbs = lesson.eyebrow.split('·').map((x) => x.trim()).filter((x) => x && !/^interactive lesson$/i.test(x));
+  const kindLabel = (s: Step) => (s.kind === 'video' ? 'Video' : s.kind === 'quiz' ? 'Quiz' : 'Try it');
+
+  return (
+    <div className="app fixed">
+      <TopBar crumb={<>{crumbs.map((c) => <span key={c}>{c} / </span>)}<b>{lesson.title}</b></>} search>
+        <button className="btn" type="button" aria-pressed={voice} onClick={() => toggleVoice(!voice)}>
+          Read aloud: {voice ? 'On' : 'Off'}
+        </button>
+      </TopBar>
+
+      <div className="studio">
+        <aside className="rail" aria-label="Lesson outline">
+          <div className="rail-head">
+            <span className="lbl">Interactive lesson</span>
+            <h1>{lesson.title}</h1>
+            <p>{lesson.summary}</p>
+          </div>
+          <span className="lbl" style={{ padding: '0 6px' }}>Chapters · {index + 1} of {steps.length}</span>
+          <ol className="chapters">
+            {steps.map((s, i) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  className={`ch ${i === index ? 'cur' : ''} ${done.has(i) && i !== index ? 'done' : ''}`}
+                  aria-current={i === index ? 'step' : undefined}
+                  onClick={() => go(i)}
+                >
+                  <b>{done.has(i) && i !== index ? '✓' : i + 1}</b>
+                  <span className="t">{s.title}</span>
+                  <span className="kind">{kindLabel(s)}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          {lesson.sources.length > 0 && (
+            <div className="sources">
+              <span className="lbl">Sources</span>
+              <ul>
+                {lesson.sources.map((src) => (
+                  <li key={src.url}><a href={src.url} target="_blank" rel="noreferrer">{src.title}</a></li>
+                ))}
+              </ul>
+              {lesson.note && <p>{lesson.note}</p>}
             </div>
           )}
-          {needsTap && step.kind === 'video' && (
-            <button type="button" className="tap-sound" onClick={togglePlay}>▶ Play with sound</button>
-          )}
-        </Stage>
-        <div className="caption" aria-live="polite" style={{ fontSize: fit.font }}>{caption}</div>
-        </div>
-        </div>
-        <div className="controls">
-          <button className="btn" type="button" disabled={index === 0} onClick={() => go(index - 1)}>Back</button>
-          <button className="btn primary" type="button" disabled={step.kind !== 'video'} onClick={togglePlay}>
-            {step.kind === 'video' ? (playing ? 'Pause' : 'Play') : 'Your turn'}
-          </button>
-          <button className="btn" type="button" disabled={index === steps.length - 1} onClick={() => go(index + 1)}>Next</button>
-          <button className="btn ghost" type="button" onClick={() => go(index)}>Restart chapter</button>
-          <label className="voice">
-            <input type="checkbox" checked={voice} onChange={(e) => toggleVoice(e.target.checked)} /> Read aloud
-          </label>
-        </div>
-        <Timeline steps={steps} timing={timing} index={index} progressOf={progressOf} onPick={go} />
-        <div className="legend"><span>Video chapter</span><span className="lx">You try it</span></div>
-      </section>
+        </aside>
 
-      <section className="panel" key={`${step.id}-${index}-${visit}`}>
-        {step.kind === 'video' && (
-          <>
-            <div className="phead"><span className="chip">Video</span><h2>{step.title}</h2></div>
-            <dl className="terms">
-              {step.terms.map((t) => (
-                <div key={t.term}><dt>{t.term}</dt><dd>{t.definition}</dd></div>
-              ))}
-            </dl>
-          </>
-        )}
-        {step.kind === 'simulation' && <Simulation step={step} {...common} />}
-        {step.kind === 'match' && <Match step={step} {...common} />}
-        {step.kind === 'process' && <Process step={step} {...common} />}
-        {step.kind === 'quiz' && (
-          <Quiz step={step} {...common} onRestart={() => { setDone(new Set()); go(0); }} />
-        )}
-      </section>
-      </div>
-
-      <nav className="chap" aria-label="Chapters">
-        <h2>Chapters</h2>
-        <ol>
-          {steps.map((s, i) => (
-            <li key={s.id}>
-              <button type="button" className={i === index ? 'cur' : ''} onClick={() => go(i)}>
-                <span className="m">
-                  {String(i + 1).padStart(2, '0')} · {s.kind === 'video' ? 'Video' : s.kind === 'quiz' ? 'Quiz' : 'Try it'}
-                  {done.has(i) && <> · <b>done</b></>}
-                </span>
-                <span>{s.title}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </nav>
-
-      {lesson.sources.length > 0 && (
-        <section className="src">
-          <strong>Sources</strong>
-          <ul>
-            {lesson.sources.map((s) => (
-              <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></li>
-            ))}
-          </ul>
-          {lesson.note && <p>{lesson.note}</p>}
+        <section className="center" aria-label="Lesson player">
+          <Stage
+            frame={frame}
+            palette={palette}
+            tag={step.tag}
+            overlayRef={setOverlay}
+            overlayActive={step.kind === 'match' || step.kind === 'process'}
+          >
+            {toast && step.kind !== 'video' && (
+              <div key={toast.key} className={`toast ${toast.tone}`} role="status">
+                {toast.tone === 'ok' || toast.tone === 'win' ? '✓ ' : toast.tone === 'bad' ? '✗ ' : ''}{toast.text}
+              </div>
+            )}
+            {needsTap && step.kind === 'video' && (
+              <button type="button" className="tap-sound" onClick={togglePlay}>▶ Play with sound</button>
+            )}
+          </Stage>
+          <div className="caption" aria-live="polite"><p>{caption}</p></div>
+          <div className="transport">
+            <button className="btn" type="button" disabled={index === 0} onClick={() => go(index - 1)}>Back</button>
+            <button
+              className="btn primary icon"
+              type="button"
+              disabled={step.kind !== 'video'}
+              onClick={togglePlay}
+              aria-label={playing ? 'Pause' : 'Play'}
+              title={step.kind === 'video' ? (playing ? 'Pause' : 'Play') : 'Your turn: use the panel'}
+            >
+              {playing && step.kind === 'video' ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="2" width="3" height="10" rx="1" fill="currentColor" /><rect x="8.5" y="2" width="3" height="10" rx="1" fill="currentColor" /></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 2.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L4.4 1.7a.6.6 0 0 0-.9.5Z" fill="currentColor" /></svg>
+              )}
+            </button>
+            <button className="btn" type="button" disabled={index === steps.length - 1} onClick={() => go(index + 1)}>Next</button>
+            <Timeline steps={steps} timing={timing} index={index} progressOf={progressOf} onPick={go} elapsed={elapsed} />
+            <button className="btn ghost" type="button" onClick={() => go(index)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.7-4" /><path d="M2.5 2.5v3h3" /></svg>
+              <span className="restart-label">Restart chapter</span>
+            </button>
+          </div>
         </section>
-      )}
+
+        <section className="dock" key={`${step.id}-${index}-${visit}`} aria-label="Activity">
+          {step.kind === 'video' && (
+            <>
+              <div className="dock-head"><span className="chip">Video</span><h2>{step.title}</h2></div>
+              <div className="dock-body">
+                <span className="lbl">Key terms</span>
+                <dl className="terms">
+                  {step.terms.map((t) => (
+                    <div key={t.term}><dt>{t.term}</dt><dd>{t.definition}</dd></div>
+                  ))}
+                </dl>
+              </div>
+              <div className="dock-foot">
+                <span className="note">Chapter {index + 1} of {steps.length}</span>
+                <span className="sp" />
+                <button className="btn" type="button" disabled={index === steps.length - 1} onClick={() => go(index + 1)}>Next chapter</button>
+              </div>
+            </>
+          )}
+          {step.kind === 'simulation' && <Simulation step={step} {...common} />}
+          {step.kind === 'match' && <Match step={step} {...common} />}
+          {step.kind === 'process' && <Process step={step} {...common} />}
+          {step.kind === 'quiz' && (
+            <Quiz step={step} {...common} onRestart={() => { setDone(new Set()); go(0); }} />
+          )}
+        </section>
+      </div>
     </div>
   );
 }

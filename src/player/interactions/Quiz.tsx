@@ -26,9 +26,11 @@ export default function Quiz({ step, frame, baseEnv, onGoal, onRestart, notify }
   if (finished) {
     return (
       <>
-        <div className="phead"><span className="chip ix">Lesson complete</span><h2>You scored {score} of {step.questions.length}</h2></div>
-        <p className="intro">Go back to any chapter to replay it, or try the activities again with different settings.</p>
-        <div className="ixbar"><span className="sp" /><button className="btn primary" type="button" onClick={onRestart}>Restart lesson</button></div>
+        <div className="dock-head"><span className="chip on">Lesson complete</span><h2>You scored {score} of {step.questions.length}</h2></div>
+        <div className="dock-body">
+          <p className="intro">Go back to any chapter from the list on the left to replay it, or try the activities again with different settings.</p>
+        </div>
+        <div className="dock-foot"><span className="sp" /><button className="btn primary" type="button" onClick={onRestart}>Restart lesson</button></div>
       </>
     );
   }
@@ -47,7 +49,9 @@ export default function Quiz({ step, frame, baseEnv, onGoal, onRestart, notify }
 
   return (
     <>
-      <div className="phead"><span className="chip ix">Question {i + 1} of {step.questions.length}</span><h2>{q.question}</h2></div>
+      <div className="dock-head"><span className="chip on">Quiz</span><span className="lbl">Question {i + 1} of {step.questions.length}</span></div>
+      <div className="dock-body">
+      <h2>{q.question}</h2>
       <div className="opts">
         {q.options.map((o, k) => (
           <button
@@ -62,7 +66,9 @@ export default function Quiz({ step, frame, baseEnv, onGoal, onRestart, notify }
         ))}
       </div>
       {picked !== null && <p className="why">{q.explanation}</p>}
-      <div className="ixbar">
+      </div>
+      <div className="dock-foot">
+        <span className="note">Score {score} of {step.questions.length}</span>
         <span className="sp" />
         {picked !== null && (
           <button ref={nextBtn} className="btn primary" type="button" onClick={next}>

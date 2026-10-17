@@ -27,12 +27,18 @@ export default function Stage({ frame, palette, tag, overlayRef, overlayActive, 
     const cv = canvas.current!;
     const ctx = cv.getContext('2d')!;
     let k = 1;
+    // The stage box may be any shape; the 800x450 scene is drawn centered and
+    // scaled to fit (letterboxed), matching the SVG overlay's default viewBox fit.
+    let s = 1, ox = 0, oy = 0;
     const fit = () => {
       const r = cv.getBoundingClientRect();
       const d = Math.min(2, window.devicePixelRatio || 1);
       cv.width = Math.max(2, Math.round(r.width * d));
       cv.height = Math.max(2, Math.round(r.height * d));
-      k = Math.max(0.2, r.width / STAGE_W);
+      s = Math.min(cv.width / STAGE_W, cv.height / STAGE_H);
+      ox = (cv.width - STAGE_W * s) / 2;
+      oy = (cv.height - STAGE_H * s) / 2;
+      k = Math.max(0.2, s / d);
       cv.parentElement?.style.setProperty('--fs', `${Math.min(30, Math.max(15, 13 / k))}px`);
     };
     const ro = new ResizeObserver(fit);
@@ -47,12 +53,18 @@ export default function Stage({ frame, palette, tag, overlayRef, overlayActive, 
       const f = frame.current;
       try {
         f?.tick?.(dt);
-        ctx.setTransform(cv.width / STAGE_W, 0, 0, cv.width / STAGE_W, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1;
         ctx.setLineDash([]);
         ctx.fillStyle = f?.background ?? DEFAULT_BG;
-        ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.save();
+        ctx.setTransform(s, 0, 0, s, ox, oy);
+        ctx.beginPath();
+        ctx.rect(0, 0, STAGE_W, STAGE_H);
+        ctx.clip();
         f?.draw({ ctx, k, palette: paletteRef.current, placed: [] });
+        ctx.restore();
       } catch (err) {
         console.error('Stage frame failed', err);
       }

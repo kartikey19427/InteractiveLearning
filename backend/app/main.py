@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -40,6 +43,10 @@ app.add_middleware(
 
 MEDIA.mkdir(parents=True, exist_ok=True)
 app.mount("/api/media", StaticFiles(directory=MEDIA), name="media")
+
+# The production container places the Vite build here. API routes are declared
+# below and take precedence; this fallback lets React Router handle page URLs.
+WEB_DIST = Path(os.getenv("WEB_DIST", str(Path(__file__).resolve().parents[2] / "dist")))
 
 
 class SearchIn(BaseModel):
@@ -266,3 +273,13 @@ async def retry_topic(slug: str, session: AsyncSession = Depends(get_session)):
         await session.commit()
         jobs.enqueue(topic.id)
     return _detail(topic)
+
+
+if WEB_DIST.is_dir():
+    @app.get("/{path:path}", include_in_schema=False)
+    async def frontend(path: str):
+        root = WEB_DIST.resolve()
+        requested = (root / path).resolve()
+        if path and requested.is_relative_to(root) and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(WEB_DIST / "index.html")

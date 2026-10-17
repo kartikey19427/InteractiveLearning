@@ -54,3 +54,23 @@ npm run dev
 Without an API key, saved lessons still open, but new topics show a clear "no API key" message instead of generating.
 
 To use Claude instead, set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` in `backend/.env`. `GEMINI_MODEL` picks the Gemini model (default `gemini-flash-latest`).
+
+## Deploy the frontend and API together on Cloud Run
+
+The root `Dockerfile` builds the Vite frontend and runs it with FastAPI in one Cloud Run service. The browser and API share one URL, so production requests to `/api/...` need no separate frontend proxy or CORS setup.
+
+Cloud Run's local filesystem is temporary. Create a persistent PostgreSQL database with a provider of your choice, then set `DATABASE_URL` in the Cloud Run service to its connection URL. Set `GEMINI_API_KEY` as a secret (or environment variable for a personal demo); `TAVILY_API_KEY` is optional. Do not put secrets in the Dockerfile or commit them to Git.
+
+From the repository root, deploy with the Google Cloud CLI:
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud run deploy interactive-learning --source . --region asia-south1 --allow-unauthenticated --max 1 --memory 1Gi
+```
+
+When prompted, enable the required APIs and allow public access. In the Cloud Run service's **Edit and deploy new revision → Variables & Secrets**, add `DATABASE_URL` and `GEMINI_API_KEY`, then deploy the revision. Open the service URL shown by Cloud Run.
+
+The free Cloud Run allowance is usage-limited. Database hosting and AI provider usage are separate and may have their own limits or charges. This app starts lesson-generation and narration jobs inside the web process, and generated audio is stored on the instance filesystem; those jobs and audio files are not durable across instance shutdowns. Use this setup for a demo, and move background jobs/audio to durable services for a dependable public deployment.
+
+Cloud Run's default request-based CPU allocation also throttles these background jobs after the HTTP response returns. This can make generation much slower than localhost. Instance-based billing (`--no-cpu-throttling`) keeps CPU available while an instance exists, but increases billable time and does not prevent scale-to-zero or instance shutdown. For reliable generation, use a durable task worker or keep generation within an active request. Keep the database near the Cloud Run region to reduce database latency.

@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+dist
+backend/.venv
+backend/media
+**/__pycache__
+**/*.pyc
+backend/.env
+.env
+*.pptx

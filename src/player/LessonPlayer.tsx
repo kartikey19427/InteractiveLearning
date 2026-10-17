@@ -299,6 +299,37 @@ export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; na
       : step.kind === 'quiz' ? `Answer ${step.questions.length} questions to finish the lesson.`
         : step.caption ?? 'Your turn: try it yourself.';
 
+  // Size the stage + caption to the space left in the window, keeping 16:9.
+  // The stage column is exactly as wide as the stage, so there's no gap
+  // between it and the panel; the panel takes the rest of the width.
+  const fitRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<{ w: number; font: number }>({ w: 0, font: 18 });
+  useEffect(() => {
+    const el = fitRef.current;
+    const main = mainRef.current;
+    if (!el || !main) return;
+    const wide = window.matchMedia('(min-width: 1100px)');
+    const measure = () => {
+      const font = (w: number) => Math.round(Math.min(24, Math.max(15, w * 0.02)));
+      if (!wide.matches) { setFit({ w: 0, font: font(el.clientWidth) }); return; }
+      const W = main.clientWidth - 16 - 340; // leave the gutter and the panel's minimum width
+      const H = el.clientHeight;
+      let w = W;
+      for (let i = 0; i < 2; i++) {
+        const capH = font(w) * 1.35 * 2 + 10; // two caption lines
+        w = Math.max(320, Math.min(W, ((H - capH) * 16) / 9));
+      }
+      setFit({ w: Math.floor(w), font: font(w) });
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    ro.observe(main);
+    wide.addEventListener('change', measure);
+    measure();
+    return () => { ro.disconnect(); wide.removeEventListener('change', measure); };
+  }, []);
+
   const common = {
     frame,
     overlay,
@@ -317,8 +348,10 @@ export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; na
         <p>{lesson.summary}</p>
       </header>
 
-      <div className="lesson-main">
+      <div className="lesson-main" ref={mainRef} style={fit.w ? { gridTemplateColumns: `${fit.w}px minmax(340px, 1fr)` } : undefined}>
       <section className="player" aria-label="Lesson player">
+        <div className="stage-fit" ref={fitRef}>
+        <div className="screen" style={{ width: fit.w || undefined }}>
         <Stage
           frame={frame}
           palette={palette}
@@ -335,7 +368,9 @@ export default function LessonPlayer({ lesson, narration }: { lesson: Lesson; na
             <button type="button" className="tap-sound" onClick={togglePlay}>▶ Play with sound</button>
           )}
         </Stage>
-        <div className="caption" aria-live="polite">{caption}</div>
+        <div className="caption" aria-live="polite" style={{ fontSize: fit.font }}>{caption}</div>
+        </div>
+        </div>
         <div className="controls">
           <button className="btn" type="button" disabled={index === 0} onClick={() => go(index - 1)}>Back</button>
           <button className="btn primary" type="button" disabled={step.kind !== 'video'} onClick={togglePlay}>

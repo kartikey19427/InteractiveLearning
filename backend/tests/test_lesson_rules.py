@@ -46,3 +46,34 @@ def test_uncovered_activity_goes_back_to_the_writer():
 def test_reviewer_sees_chapters_in_order():
     text = outline(EXAMPLE)
     assert text.index("VIDEO intro") < text.index("ACTIVITY dry") < text.index("QUIZ quiz")
+
+
+def _video(lesson):
+    return next(s for s in lesson["steps"] if s["kind"] == "video" and s["id"] == "evaporate")
+
+
+def test_video_chapter_without_shots_is_sent_back():
+    lesson = copy.deepcopy(EXAMPLE)
+    _video(lesson)["scene"] = {"duration": 10, "elements": []}
+    assert any("scene.shots" in p for p in _problems(lesson))
+
+
+def test_every_sentence_needs_a_shot_and_both_looks_are_used():
+    lesson = copy.deepcopy(EXAMPLE)
+    shots = _video(lesson)["scene"]["shots"]
+    del shots[2]  # sentence 3 has no shot
+    assert any("no shot for narration sentence" in p for p in _problems(lesson))
+    lesson = copy.deepcopy(EXAMPLE)
+    for sh in _video(lesson)["scene"]["shots"]:
+        sh["look"] = "world"
+    assert any("alternate the looks" in p for p in _problems(lesson))
+
+
+def test_every_shot_moves_the_camera_and_names_its_subject():
+    lesson = copy.deepcopy(EXAMPLE)
+    sh = _video(lesson)["scene"]["shots"][0]
+    sh.pop("camera")
+    assert any("camera zoom" in p for p in _problems(lesson))
+    lesson = copy.deepcopy(EXAMPLE)
+    _video(lesson)["scene"]["shots"][1]["elements"] = [e for e in _video(lesson)["scene"]["shots"][1]["elements"] if e["type"] not in ("label", "callout")]
+    assert any("labels/callouts" in p for p in _problems(lesson))

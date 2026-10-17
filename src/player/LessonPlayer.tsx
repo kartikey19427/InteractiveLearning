@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Lesson, Step, VideoStep } from '../lesson/types';
 import { defineFunctions, type Env } from '../lesson/expr';
-import { drawElements } from '../lesson/scene';
+import { activeShot, drawElements, drawShot } from '../lesson/scene';
 import Stage, { type FrameHandle } from './Stage';
 import Timeline from './Timeline';
 import Simulation from './interactions/Simulation';
@@ -317,6 +317,23 @@ export default function LessonPlayer({
         }
       },
       draw(rc) {
+        const shots = step.scene.shots;
+        if (shots?.length) {
+          // Shot-by-shot: the narration decides which shot is on, and how far into it we are.
+          const T = tRef.current;
+          const si = sentenceAt(bounds, T);
+          const start = si > 0 ? bounds[si - 1] : 0;
+          const len = Math.max(0.01, bounds[si] - start);
+          const frac = Math.min(1, Math.max(0, (T - start) / len));
+          const a = activeShot(shots, si, frac);
+          if (a) {
+            const span = Math.max(0.001, a.to - a.from);
+            const p = Math.min(1, Math.max(0, (frac - a.from) / span));
+            const sec = Math.max(0, T - (start + a.from * len));
+            drawShot(rc, a.shot, { ...baseEnv, T }, p, sec);
+          }
+          return;
+        }
         const t = (tRef.current / total) * step.scene.duration;
         drawElements(rc, step.scene.elements, { ...baseEnv, t });
       },

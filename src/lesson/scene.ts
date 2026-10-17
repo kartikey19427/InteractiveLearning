@@ -1,6 +1,6 @@
 // Draws declarative scene elements onto the 800 x 450 stage canvas.
 import { evaluate, type Env } from './expr';
-import type { Num, SceneElement, Str, NetworkEl, ParticlesEl, ScatterEl, CycleEl } from './types';
+import type { Num, SceneElement, Shot, Str, NetworkEl, ParticlesEl, ScatterEl, CycleEl } from './types';
 
 export const STAGE_W = 800;
 export const STAGE_H = 450;
@@ -15,6 +15,8 @@ export interface RenderCtx {
   placed?: [number, number, number, number][];
   /** How the 800x450 stage sits on the canvas (scale and offset in device pixels), to keep labels inside it. */
   stage?: { s: number; ox: number; oy: number };
+  /** The look of the shot being drawn: on the warm "world" look, labels get a light box and dark text. */
+  look?: 'blueprint' | 'world';
 }
 
 const TAU = Math.PI * 2;
@@ -205,10 +207,10 @@ export function drawLabel(rc: RenderCtx, text: string, x0_: number, y0_: number,
   if (o.bg) {
     const m = ctx.measureText(text).width;
     const x0 = o.align === 'left' ? x : o.align === 'right' ? x - m : x - m / 2;
-    ctx.fillStyle = 'rgba(15,25,20,.78)';
+    ctx.fillStyle = rc.look === 'world' ? 'rgba(255,248,235,.92)' : 'rgba(15,25,20,.78)';
     ctx.fillRect(x0 - 6, y - fs * 0.8, m + 12, fs * 1.6);
   }
-  ctx.fillStyle = o.color ?? '#E8F0E6';
+  ctx.fillStyle = o.color ?? (rc.look === 'world' ? '#3A2A1A' : '#E8F0E6');
   ctx.fillText(text, x, y);
   return y;
 }
@@ -307,6 +309,95 @@ function drawCycle(rc: RenderCtx, el: CycleEl, env: Env) {
     const dx = Math.cos(a) > 0.2 ? 96 : Math.cos(a) < -0.2 ? -96 : 0;
     drawLabel(rc, node.label, x + dx, y + dy, { bg: true });
   });
+}
+
+// ---------- shots: the two looks, and the camera ----------
+
+const grain = (() => { const r = rng(7); return Array.from({ length: 260 }, () => [r() * STAGE_W, r() * STAGE_H, 0.6 + r() * 1.6, r()]); })();
+
+/** Paint a shot's backdrop: dark navy blueprint, or warm illustrated paper. */
+export function drawLook(rc: RenderCtx, look: 'blueprint' | 'world') {
+  const { ctx } = rc;
+  if (look === 'blueprint') {
+    ctx.fillStyle = '#0A0B1E';
+    ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+    ctx.strokeStyle = 'rgba(130,160,255,.07)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x <= STAGE_W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, STAGE_H); }
+    for (let y = 0; y <= STAGE_H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(STAGE_W, y); }
+    ctx.stroke();
+    const g = ctx.createRadialGradient(STAGE_W / 2, STAGE_H / 2, 120, STAGE_W / 2, STAGE_H / 2, 520);
+    g.addColorStop(0, 'rgba(60,70,160,.18)');
+    g.addColorStop(1, 'rgba(0,0,0,.45)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+    return;
+  }
+  const g = ctx.createLinearGradient(0, 0, STAGE_W, STAGE_H);
+  g.addColorStop(0, '#F7ECD4');
+  g.addColorStop(1, '#E8C79B');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.22)';
+  ctx.lineWidth = 26;
+  ctx.beginPath();
+  for (let x = -STAGE_H; x < STAGE_W; x += 90) { ctx.moveTo(x, STAGE_H); ctx.lineTo(x + STAGE_H, 0); }
+  ctx.stroke();
+  ctx.restore();
+  for (const [x, y, r, a] of grain) {
+    ctx.fillStyle = `rgba(120,80,40,${0.05 + a * 0.08})`;
+    ctx.fillRect(x, y, r, r);
+  }
+  const v = ctx.createRadialGradient(STAGE_W / 2, STAGE_H / 2, 200, STAGE_W / 2, STAGE_H / 2, 560);
+  v.addColorStop(0, 'rgba(0,0,0,0)');
+  v.addColorStop(1, 'rgba(90,50,20,.28)');
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+}
+
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+/** Draw one shot at progress p (0..1, `s` seconds in): its look, a slow camera move, then its elements. */
+export function drawShot(rc: RenderCtx, shot: Shot, env: Env, p: number, s: number) {
+  const { ctx } = rc;
+  drawLook(rc, shot.look);
+  const prevLook = rc.look;
+  rc.look = shot.look;
+  const z0 = shot.camera?.zoom?.[0] ?? 1;
+  const z1 = shot.camera?.zoom?.[1] ?? z0;
+  const [px, py] = shot.camera?.pan ?? [0, 0];
+  const e = easeInOut(clamp(p, 0, 1));
+  const z = z0 + (z1 - z0) * e;
+  ctx.save();
+  ctx.translate(STAGE_W / 2 + px * e, STAGE_H / 2 + py * e);
+  ctx.scale(z, z);
+  ctx.translate(-STAGE_W / 2, -STAGE_H / 2);
+  drawElements(rc, shot.elements, { ...env, t: s, p });
+  rc.look = prevLook;
+  ctx.restore();
+  if (s < 0.2) {
+    // A quick fade up from black makes the cut between shots read as a cut.
+    ctx.fillStyle = `rgba(0,0,0,${(1 - s / 0.2) * 0.85})`;
+    ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+  }
+}
+
+/** The shot playing at this moment: which sentence we're in, and how far through it. */
+export function activeShot(shots: Shot[], sentence: number, frac: number): { shot: Shot; from: number; to: number } | null {
+  let pick: { shot: Shot; from: number; to: number } | null = null;
+  for (const sh of shots) {
+    if (sh.sentence !== sentence) continue;
+    const from = sh.from ?? 0, to = sh.to ?? 1;
+    if (!pick || (frac >= from && frac <= to)) pick = { shot: sh, from, to };
+    if (frac >= from && frac < to) break;
+  }
+  if (pick) return pick;
+  // No shot for this sentence: hold the nearest earlier one.
+  const before = shots.filter((sh) => sh.sentence < sentence).sort((a, b) => b.sentence - a.sentence)[0];
+  const sh = before ?? shots[0];
+  return sh ? { shot: sh, from: sh.from ?? 0, to: sh.to ?? 1 } : null;
 }
 
 export function drawElements(rc: RenderCtx, elements: SceneElement[], env: Env) {
@@ -409,7 +500,7 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
       break;
     case 'callout': {
       const x = num(el.x, env), y = num(el.y, env);
-      const col = color(el.color, env, rc.palette) ?? '#E8F0E6';
+      const col = color(el.color, env, rc.palette) ?? (rc.look === 'world' ? '#3A2A1A' : '#E8F0E6');
       const text = str(el.text, env);
       const lx = clampX(rc, text, num(el.lx, env), { bg: true });
       const ly = placeLabel(rc, text, lx, num(el.ly, env), { bg: true });

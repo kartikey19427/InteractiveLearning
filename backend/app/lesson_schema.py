@@ -208,10 +208,22 @@ SceneElement = Annotated[
 GroupEl.model_rebuild()
 
 
-class Scene(Strict):
-    duration: float = Field(gt=0, le=60)
-    background: str | None = None
+class Shot(Strict):
+    sentence: int = Field(ge=0, le=12)
+    from_: float | None = Field(default=None, ge=0, le=1, alias="from")
+    to: float | None = Field(default=None, ge=0, le=1)
+    look: Literal["blueprint", "world"]
+    camera: dict | None = None
     elements: list[SceneElement]
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class Scene(Strict):
+    duration: float = Field(default=12, gt=0, le=60)
+    background: str | None = None
+    elements: list[SceneElement] = []
+    shots: list[Shot] | None = Field(default=None, max_length=24)
 
 
 class StaticScene(Strict):

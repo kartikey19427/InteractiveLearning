@@ -152,11 +152,27 @@ export type SceneElement =
   | GroupEl | RectEl | EllipseEl | LineEl | PathEl | LabelEl | CalloutEl
   | NetworkEl | ParticlesEl | ScatterEl | CycleEl;
 
+export interface Shot {
+  /** The narration sentence this shot plays under (0-based). */
+  sentence: number;
+  /** The part of that sentence it covers, 0..1 (default: all of it). Two shots can split a long sentence. */
+  from?: number;
+  to?: number;
+  /** blueprint: dark navy diagram look. world: warm illustrated paper look. */
+  look: 'blueprint' | 'world';
+  /** Slow camera move over the shot: zoom [from, to] and pan [dx, dy] in stage units. */
+  camera?: { zoom?: [number, number]; pan?: [number, number] };
+  /** Drawn with `t` = seconds into the shot and `p` = 0..1 progress through it. */
+  elements: SceneElement[];
+}
+
 export interface Scene {
   /** Nominal length in seconds that `t` runs over; playback stretches to fit narration. */
   duration: number;
   background?: string;
   elements: SceneElement[];
+  /** Shot-by-shot scenes: one or more shots per narration sentence, cut between them. */
+  shots?: Shot[];
 }
 
 // ---------- steps ----------

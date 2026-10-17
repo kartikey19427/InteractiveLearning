@@ -174,6 +174,31 @@ def _count_labels(elements) -> int:
     return n
 
 
+def _shot_problems(i: int, step: dict) -> list[str]:
+    """Video chapters are shot by shot, like the reference style: a shot per sentence, both looks, a camera move."""
+    where = f"steps.{i} ({step.get('id')})"
+    sentences = len(step.get("narration") or [])
+    shots = (step.get("scene") or {}).get("shots")
+    if not isinstance(shots, list) or not shots:
+        return [f'{where}: write this chapter as scene.shots (one or more shots per narration sentence, each with "sentence", "look" and "camera").']
+    out: list[str] = []
+    covered = {sh.get("sentence") for sh in shots if isinstance(sh, dict)}
+    missing = [n for n in range(sentences) if n not in covered]
+    if missing:
+        out.append(f"{where}: no shot for narration sentence(s) {[n + 1 for n in missing]}; give every sentence at least one shot.")
+    if sentences >= 3 and len({sh.get("look") for sh in shots if isinstance(sh, dict)}) < 2:
+        out.append(f'{where}: alternate the looks: use both "blueprint" and "world" shots.')
+    for n, sh in enumerate(shots):
+        if not isinstance(sh, dict):
+            continue
+        if not (sh.get("camera") or {}).get("zoom"):
+            out.append(f"{where} shot {n + 1}: add a slow camera zoom, e.g. camera: {{zoom: [1, 1.12]}}.")
+        labels = _count_labels(sh.get("elements"))
+        if labels < 1 or labels > 3:
+            out.append(f"{where} shot {n + 1}: {labels} labels/callouts; use 1 to 3 (name the key thing, keep text light).")
+    return out
+
+
 def _label_problems(raw: dict) -> list[str]:
     """Unlabeled scenes and long token labels are hard to follow; ask for fixes like a reviewer would."""
     out = []
@@ -183,11 +208,7 @@ def _label_problems(raw: dict) -> list[str]:
                 if isinstance(t, dict) and len(str(t.get("label", ""))) > 28:
                     out.append(f"steps.{i}.tokens.{t.get('id')}: label {t.get('label')!r} is too long; keep it under 24 characters.")
         if isinstance(step, dict) and step.get("kind") == "video":
-            need = max(3, len(step.get("narration") or []))
-            have = _count_labels((step.get("scene") or {}).get("elements"))
-            if have < need:
-                out.append(f"steps.{i} ({step.get('id')}): only {have} labels/callouts for {need} narration sentences. "
-                           "Name each object the narration mentions with a callout, and label what is happening.")
+            out.extend(_shot_problems(i, step))
     return out
 
 

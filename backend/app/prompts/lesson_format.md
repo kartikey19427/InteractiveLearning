@@ -72,13 +72,31 @@ A learner watching with the sound off must still understand each scene. So:
 - **Recognizable.** Build objects from several shapes so they look like what they are, with consistent colors for the same thing across chapters (put them in the palette). Show scale or context where it helps (a "leaf" next to a zoomed "cell", a "×1000" tag when zooming in).
 - **Smooth and slow enough to follow.** Use `ease(sub(t, a, b))` for motion, give each movement at least 1–2 seconds, and leave the final state on screen at the end of the scene.
 
-Each video scene needs at least as many labels and callouts as it has narration sentences.
+Each shot needs one to three labels or callouts.
 
 Elements draw in order; later elements are on top. Build recognizable objects from several shapes (a cell = ellipse + nucleus + organelles; a mushroom = stem rect + half-ellipse cap + gill lines). Prefer `group` with `repeat`/`items` over copying elements.
 
 ## Steps
 
 Every step has `kind`, `id` (lowercase letters, digits, hyphens; unique), `title` (a few words), and `tag` (short chip text like "Photosynthesis" or "Try it · sliders").
+
+### Shots: how every video chapter is staged
+
+A video chapter is a short film, not one long picture. Write `scene.shots`: one shot per narration sentence (or two shots when a sentence is long, using `from`/`to` fractions), with a **hard cut** between shots. Aim for 2–4 seconds per shot.
+
+```
+"scene": { "shots": [
+  { "sentence": 0, "look": "world", "camera": { "zoom": [1, 1.14], "pan": [-10, -8] }, "elements": [ ... ] },
+  { "sentence": 1, "look": "blueprint", "camera": { "zoom": [1, 1.2] }, "elements": [ ... ] }
+] }
+```
+
+- **`sentence`** is the 0-based narration sentence the shot plays under; the shot starts and ends with that sentence in the voice, so words and pictures never drift. In a shot, `t` is seconds since the shot began and `p` runs 0 to 1 across it. Use `p` for builds (`ease(sub(p, 0.1, 0.7))`).
+- **Two looks, alternating.** `"world"` is a warm illustrated paper backdrop for the real-world context: objects, places, everyday scale (palette: ochre, cream, terracotta, sky blue, leaf green). `"blueprint"` is a dark navy diagram backdrop for how it works: thin white or pale-blue line art, with ONE glowing accent (green `#5BE3A0`, magenta `#E35BD0` or cyan `#5BC8FF`) marking what is being explained. Alternate between them: context, mechanism, context.
+- **Something moves in every shot, and the camera always moves.** Give every shot a slow `camera.zoom` (push in `[1, 1.15]` or pull back `[1.15, 1]`) and optionally a `pan`. Build things up as they are mentioned: draw lines on with `progress`, grow shapes with `ease(sub(p, a, b))`, spawn `particles`.
+- **One hero object.** Pick the one subject of the lesson (the fly, the raindrop, the electron, the magnet) and bring it back in most shots, at different scales and angles, so there is a thread to follow.
+- **Light on text.** One to three labels or callouts per shot, naming only the key thing the sentence introduces. No sentences on screen.
+- Do not use `scene.elements` for a video chapter; put everything in shots. (`scene.duration` is ignored.)
 
 ### video
 

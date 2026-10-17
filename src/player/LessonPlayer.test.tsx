@@ -7,7 +7,7 @@ import type { FrameHandle } from './Stage';
 import LessonPlayer, { type Narration, type NarrationState } from './LessonPlayer';
 
 const stage = vi.hoisted(() => ({ frame: null as { current: FrameHandle | null } | null, tickOnCommit: false }));
-vi.mock('./Stage', () => ({ default: (props: { frame: typeof stage.frame; children: ReactNode }) => {
+vi.mock('./Stage', () => ({ default: function MockStage(props: { frame: typeof stage.frame; children: ReactNode }) {
   stage.frame = props.frame;
   useLayoutEffect(() => {
     if (stage.tickOnCommit) props.frame?.current?.tick?.(0.05);
@@ -78,6 +78,18 @@ afterEach(() => {
 });
 
 describe('Read Aloud across chapter changes', () => {
+  it.each(['ready', 'preparing'] as const)('starts browser speech despite stale %s ElevenLabs props during a voice switch', (state) => {
+    render('ready', true);
+    expect(audio.play).toHaveBeenCalled();
+    act(() => root.render(<LessonPlayer key="browser" lesson={lesson} voiceId="browser"
+      narrationState={state} narration={{ voice: 'max', provider: 'elevenlabs',
+        clips: { intro: { url: '/intro.mp3', bounds: [5, 10] } } }} />));
+    audio.play.mockClear();
+    tick();
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'intro sentence one' }));
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(audio.paused).toBe(true);
+  });
   it('does not lock in browser speech if a frame ticks as a saved recording arrives', () => {
     render();
     tick();

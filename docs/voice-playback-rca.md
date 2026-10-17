@@ -50,3 +50,13 @@ Validation completed:
 - `npm run build`: TypeScript checks and production build pass.
 - `npm run lint`: completes with existing warnings in the project.
 - Browser check: reopened Rainbow Formation from the homepage, observed Max remain the active voice and the narration clock and captions advance. This verifies playback state; the automated tests mock audio output rather than measuring audible sound.
+
+## Follow-up: ElevenLabs to browser voice handoff
+
+A further report identified silence when switching from an ElevenLabs voice to Browser voice, while the browser voice sample still worked.
+
+The narration loader cleared clips and chapter states in a passive effect after the voice changed. The newly mounted player could therefore receive the previous voice's clips during its first render. In addition, an outstanding ElevenLabs request could finish after that reset and repopulate clips and state for the newly selected browser voice. Playback could use recorded-audio timing or wait on the old provider during a browser voice selection.
+
+The loader now associates clips and chapter states with a specific lesson and voice selection token. Previous selections are hidden immediately during render, and responses from superseded selections are ignored. Returning to the same voice creates a fresh token as well. Browser voice bypasses narration requests and preparation waits. The player also explicitly ignores recorded clips when Browser voice is selected.
+
+Four additional regressions cover stale ready/preparing player props, the first render after switching, and a recorded narration response finishing after the switch. The two loader regressions failed before this fix. The complete frontend suite now has 28 passing tests. Browser checks verify the picker and active voice label switch from Max to Browser voice; automated speech assertions use mocked browser speech rather than measuring audible output.

@@ -7,6 +7,10 @@ import type { Narration, NarrationState } from '../player/LessonPlayer';
 export const LOOKAHEAD = 1;
 
 type Fns = Record<string, { args: string[]; expr: string }>;
+const EMPTY_RECORDINGS = {
+  clips: {} as Narration['clips'],
+  states: {} as Record<string, NarrationState>,
+};
 
 /**
  * Loads a lesson like a video stream: only the chapter being watched and the
@@ -18,13 +22,17 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
   const [fns, setFns] = useState<Fns>({});
   const [stalled, setStalled] = useState(false);
   const [index, setIndex] = useState(0);
-  const [clips, setClips] = useState<Record<string, { url: string; bounds: number[] }>>({});
-  const [chapterState, setChapterState] = useState<Record<string, NarrationState>>({});
+  // Scope recordings to a particular voice selection, including a fresh token
+  // when switching away and back. Never expose the previous voice for one render.
+  const scope = useMemo(() => ({ slug, voiceId }), [slug, voiceId]);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const [recordings, setRecordings] = useState({ scope, ...EMPTY_RECORDINGS });
+  const { clips, states: chapterState } = recordings.scope === scope ? recordings : EMPTY_RECORDINGS;
   const inflight = useRef(new Set<string>());
 
   // A new lesson or voice starts from scratch.
   useEffect(() => { setLoaded({}); setFns({}); setStalled(false); inflight.current.clear(); }, [slug]);
-  useEffect(() => { setClips({}); setChapterState({}); }, [slug, voiceId]);
 
   const outline = meta?.outline;
   const total = outline?.length ?? 0;
@@ -53,24 +61,30 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
 
   const loadNarration = useCallback(async (stepId: string) => {
     // The browser voice (and "no voice") never needs the server: speak it live.
-    if (!voiceId || voiceId === 'browser') {
-      setChapterState((m) => (m[stepId] ? m : { ...m, [stepId]: 'none' }));
-      return;
-    }
+    if (!voiceId || voiceId === 'browser') return;
+    const save = (state: NarrationState, clip?: Narration['clips'][string] | null) => {
+      if (currentScope.current !== scope) return;
+      setRecordings((previous) => {
+        if (currentScope.current !== scope) return previous;
+        const m = previous.scope === scope ? previous : EMPTY_RECORDINGS;
+        if (m.states[stepId] === state && (!clip || m.clips[stepId])) return previous;
+        return { scope, states: { ...m.states, [stepId]: state },
+          clips: clip ? { ...m.clips, [stepId]: clip } : m.clips };
+      });
+    };
     const key = `voice:${voiceId}:${stepId}`;
     if (inflight.current.has(key)) return;
     inflight.current.add(key);
     try {
       const r = await getChapterNarration(slug, stepId, voiceId || undefined);
-      setChapterState((m) => (m[stepId] === r.state ? m : { ...m, [stepId]: r.state }));
       // Only the chosen voice's recordings are used; anything else falls back to the browser voice.
-      if (r.state === 'ready' && r.clip) setClips((m) => (m[stepId] ? m : { ...m, [stepId]: r.clip! }));
+      save(r.state, r.state === 'ready' ? r.clip : null);
     } catch {
-      setChapterState((m) => ({ ...m, [stepId]: 'fallback' }));
+      save('fallback');
     } finally {
       inflight.current.delete(key);
     }
-  }, [slug, voiceId]);
+  }, [slug, voiceId, scope]);
 
   // Keep the current chapter and the next one loaded; poll while either is still being made.
   useEffect(() => {
@@ -82,7 +96,7 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
         const st = loaded[i];
         if (!st) { void loadStep(i); waiting = true; continue; }
         if (st.kind === 'pending') continue;
-        if (st.kind === 'video' && voiceOn) {
+        if (st.kind === 'video' && voiceOn && voiceId && voiceId !== 'browser') {
           const s = chapterState[st.id];
           if (s === undefined || s === 'preparing') { void loadNarration(st.id); waiting = true; }
         }
@@ -91,7 +105,7 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
     };
     tick();
     return () => clearTimeout(timer);
-  }, [index, total, loaded, chapterState, voiceOn, loadStep, loadNarration]);
+  }, [index, total, loaded, chapterState, voiceOn, voiceId, loadStep, loadNarration]);
 
   // The lesson as the player sees it: loaded chapters, and placeholders for the rest.
   const lesson = useMemo<Lesson | null>(() => {
@@ -110,7 +124,7 @@ export function useLessonStream(slug: string, meta: LessonMeta | null, voiceId: 
   const narration = useMemo<Narration>(() => ({ provider: 'elevenlabs', voice: voiceId, clips }), [voiceId, clips]);
   const cur = lesson?.steps[index];
   const narrationState: NarrationState =
-    cur?.kind !== 'video' ? 'none' : (chapterState[cur.id] ?? (voiceOn ? 'preparing' : 'none'));
+    cur?.kind !== 'video' || !voiceId || voiceId === 'browser' ? 'none' : (chapterState[cur.id] ?? (voiceOn ? 'preparing' : 'none'));
 
   return { lesson, narration, narrationState, setIndex };
 }

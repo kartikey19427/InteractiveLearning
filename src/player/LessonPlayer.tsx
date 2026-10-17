@@ -72,7 +72,7 @@ export default function LessonPlayer({
   // ignored until the next visit.
   const [lock, setLock] = useState<string | null>(null);
   const narration: Narration | null =
-    lock === 'browser' || (lock && voiceKey(narrationProp) !== lock) ? null : narrationProp ?? null;
+    voiceId === 'browser' || lock === 'browser' || (lock && voiceKey(narrationProp) !== lock) ? null : narrationProp ?? null;
   const steps = lesson.steps;
   const palette = useMemo(() => ({ ...DEFAULT_PALETTE, ...lesson.palette }), [lesson.palette]);
   const fns = useMemo(() => defineFunctions(lesson.functions), [lesson.functions]);
@@ -250,7 +250,7 @@ export default function LessonPlayer({
   // Waiting for the preferred voice: its chapters are recorded one at a time,
   // and this chapter's isn't ready yet. The animation holds until it is.
   const curClip = step.kind === 'video' ? clipFor(step) : undefined;
-  const waiting = step.kind === 'video' && chooseVoice({ voice, state: narrationState, lockedBrowser: lock === 'browser', hasClip: !!curClip }) === 'wait';
+  const waiting = step.kind === 'video' && chooseVoice({ voice, state: narrationState, lockedBrowser: voiceId === 'browser' || lock === 'browser', hasClip: !!curClip }) === 'wait';
   const waitingRef = useRef(waiting);
   waitingRef.current = waiting;
   useEffect(() => {

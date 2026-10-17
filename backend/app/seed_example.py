@@ -17,7 +17,7 @@ EXAMPLE = Path(__file__).parent / "prompts" / "example_lesson.json"
 
 async def main() -> None:
     await init_db()
-    lesson = json.loads(EXAMPLE.read_text())
+    lesson = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     async with Session() as s:
         topic = await s.scalar(select(Topic).where(Topic.slug == "water-cycle"))
         if topic is None:

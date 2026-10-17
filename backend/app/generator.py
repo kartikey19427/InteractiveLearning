@@ -109,8 +109,8 @@ async def research(title: str, query: str, progress: Progress) -> tuple[str, lis
 
 
 def _writer_system() -> str:
-    spec = (PROMPTS / "lesson_format.md").read_text()
-    example = (PROMPTS / "example_lesson.json").read_text()
+    spec = (PROMPTS / "lesson_format.md").read_text(encoding="utf-8")
+    example = (PROMPTS / "example_lesson.json").read_text(encoding="utf-8")
     return (
         "You write interactive lessons as JSON for a web lesson player.\n\n"
         f"{spec}\n\n"

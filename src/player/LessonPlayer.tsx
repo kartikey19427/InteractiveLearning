@@ -188,6 +188,8 @@ export default function LessonPlayer({
     return audioRef.current;
   };
   const stopVoice = useCallback(() => {
+    // Cancelled utterances must not drive the next chapter's clock or retry.
+    speech.current = { ...idleSpeech(), text: '' };
     gate.current.stopAll();
     stopSpeech();
     audioRef.current?.pause();
@@ -276,6 +278,9 @@ export default function LessonPlayer({
       background: step.scene.background,
       tick(dt) {
         if (live.current.index !== index) return;
+        // A recording can arrive between render and this effect being replaced.
+        // The old frame must not start browser speech and lock out that recording.
+        if (latest.current.clipFor(step) !== clip) return;
         if (waitingRef.current) return; // "Preparing narration…": hold until the voice is ready
         if (live.current.playing) {
           const t = tRef.current;
@@ -338,9 +343,11 @@ export default function LessonPlayer({
         drawElements(rc, step.scene.elements, { ...baseEnv, t });
       },
     };
-    return () => { frame.current = null; audioRef.current?.pause(); };
+    return () => { frame.current = null; stopVoice(); };
     // `visit` re-runs this on Restart chapter, which restarts the recording too.
-  }, [step, index, visit, boundsKey, curUrl, baseEnv, go, markDone, speak, steps.length]);
+    // Enabling narration or finishing a wait must also restart voice playback,
+    // even when the current sentence and clip URL haven't changed.
+  }, [step, index, visit, boundsKey, curUrl, baseEnv, go, markDone, speak, steps.length, voice, waiting, stopVoice]);
 
   useEffect(() => () => stopVoice(), [stopVoice]);
 
@@ -359,7 +366,9 @@ export default function LessonPlayer({
     live.current.voice = on;
     try { localStorage.setItem('voice', on ? 'on' : 'off'); } catch { /* storage unavailable */ }
     if (!on) { stopVoice(); setNeedsTap(false); }
-    else if (playing) voiceStart(step);
+    // The playback effect starts the voice after the new state is rendered.
+    // Starting here sees the old waiting state and can lock in browser speech
+    // before the selected recording has even been requested.
   };
 
   const progressOf = useCallback((i: number) => {

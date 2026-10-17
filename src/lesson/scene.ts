@@ -13,6 +13,8 @@ export interface RenderCtx {
   palette: Record<string, string>;
   /** Label boxes drawn so far this frame (device pixels), so later labels can step aside. */
   placed?: [number, number, number, number][];
+  /** How the 800x450 stage sits on the canvas (scale and offset in device pixels), to keep labels inside it. */
+  stage?: { s: number; ox: number; oy: number };
 }
 
 const TAU = Math.PI * 2;
@@ -144,15 +146,24 @@ function labelBox(rc: RenderCtx, text: string, x: number, o: LabelOpts) {
  */
 export function placeLabel(rc: RenderCtx, text: string, x: number, y: number, o: LabelOpts = {}): number {
   const placed = rc.placed;
-  if (!placed || rc.ctx.globalAlpha < 0.25) return y;
+  // Plain text (numbers, pole letters, headings) stays exactly where it was put;
+  // only labels with a backing box step aside from each other.
+  if (!placed || !o.bg || rc.ctx.globalAlpha < 0.25) return y;
   const { x0, w, h } = labelBox(rc, text, x, o);
   const m = rc.ctx.getTransform();
   const toDevice = (yy: number): [number, number, number, number] => {
     const ax = m.a * x0 + m.e, ay = m.d * (yy - h / 2) + m.f;
     return [ax, ay, ax + m.a * w, ay + m.d * h];
   };
+  // Only a real overlap counts (a quarter of the smaller box), not boxes that merely touch.
   const hits = (b: [number, number, number, number]) =>
-    placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+    placed.some((p) => {
+      const ow = Math.min(b[2], p[2]) - Math.max(b[0], p[0]);
+      const oh = Math.min(b[3], p[3]) - Math.max(b[1], p[1]);
+      if (ow <= 0 || oh <= 0) return false;
+      const smaller = Math.min((b[2] - b[0]) * (b[3] - b[1]), (p[2] - p[0]) * (p[3] - p[1]));
+      return ow * oh > 0.25 * smaller;
+    });
   const offsets = [0, 1, -1, 2, -2, 3, -3];
   let best = y;
   for (const k of offsets) {
@@ -164,8 +175,28 @@ export function placeLabel(rc: RenderCtx, text: string, x: number, y: number, o:
   return best;
 }
 
-export function drawLabel(rc: RenderCtx, text: string, x: number, y0: number, o: LabelOpts = {}) {
+/** Shift a label sideways so its whole box stays inside the stage (with a small margin). */
+export function clampX(rc: RenderCtx, text: string, x: number, o: LabelOpts = {}): number {
+  const st = rc.stage;
+  if (!st) return x;
+  const { x0, w } = labelBox(rc, text, x, o);
+  const m = rc.ctx.getTransform();
+  if (!m.a) return x;
+  const margin = 8 * st.s;
+  const left = m.a * x0 + m.e, right = left + m.a * w;
+  const minL = st.ox + margin, maxR = st.ox + STAGE_W * st.s - margin;
+  if (right - left > maxR - minL) return x;
+  if (left < minL) return x + (minL - left) / m.a;
+  if (right > maxR) return x - (right - maxR) / m.a;
+  return x;
+}
+
+export function drawLabel(rc: RenderCtx, text: string, x0_: number, y0_: number, o: LabelOpts = {}) {
   const { ctx } = rc;
+  const x = clampX(rc, text, x0_, o);
+  // Keep the whole box inside the stage vertically too (only labels with a box; plain text stays put).
+  const half = o.bg ? labelBox(rc, text, x, o).h / 2 : 0;
+  const y0 = o.bg && rc.stage ? Math.min(STAGE_H - 4 - half, Math.max(4 + half, y0_)) : y0_;
   const y = o.placed ? y0 : placeLabel(rc, text, x, y0, o);
   const fs = labelSize(rc.k) * (o.size ?? 1);
   ctx.font = `${o.weight ?? 600} ${fs}px "Source Sans 3", system-ui, sans-serif`;
@@ -279,7 +310,10 @@ function drawCycle(rc: RenderCtx, el: CycleEl, env: Env) {
 }
 
 export function drawElements(rc: RenderCtx, elements: SceneElement[], env: Env) {
-  for (const el of elements) drawElement(rc, el, env);
+  // Shapes first, then text on top, so a line or arrowhead drawn later never covers a label.
+  const isText = (el: SceneElement) => el.type === 'label' || el.type === 'callout';
+  for (const el of elements) if (!isText(el)) drawElement(rc, el, env);
+  for (const el of elements) if (isText(el)) drawElement(rc, el, env);
 }
 
 function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
@@ -374,9 +408,10 @@ function drawElement(rc: RenderCtx, el: SceneElement, env: Env) {
       });
       break;
     case 'callout': {
-      const x = num(el.x, env), y = num(el.y, env), lx = num(el.lx, env);
+      const x = num(el.x, env), y = num(el.y, env);
       const col = color(el.color, env, rc.palette) ?? '#E8F0E6';
       const text = str(el.text, env);
+      const lx = clampX(rc, text, num(el.lx, env), { bg: true });
       const ly = placeLabel(rc, text, lx, num(el.ly, env), { bg: true });
       const fs = labelSize(rc.k);
       ctx.font = `600 ${fs}px "Source Sans 3", system-ui, sans-serif`;

@@ -63,7 +63,7 @@ export default function Stage({ frame, palette, tag, overlayRef, overlayActive, 
         ctx.beginPath();
         ctx.rect(0, 0, STAGE_W, STAGE_H);
         ctx.clip();
-        f?.draw({ ctx, k, palette: paletteRef.current, placed: [] });
+        f?.draw({ ctx, k, palette: paletteRef.current, placed: [], stage: { s, ox, oy } });
         ctx.restore();
       } catch (err) {
         console.error('Stage frame failed', err);

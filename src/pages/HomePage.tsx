@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { listTopics, searchTopic, type TopicSummary } from '../api';
 import TopBar from '../components/TopBar';
 import VoiceMenu from '../components/VoiceMenu';
+import VoiceCards from '../components/VoiceCards';
 import { useVoiceChoice } from '../components/useVoiceChoice';
 
 const EXAMPLES = ['How mushrooms reproduce', 'Photosynthesis', 'How vaccines train the immune system', 'Supply and demand', 'How TCP works'];
@@ -105,6 +106,8 @@ export default function HomePage() {
             <button key={ex} type="button" className="chip" disabled={busy} onClick={() => { setQuery(ex); void go(ex); }}>{ex}</button>
           ))}
         </div>
+
+        <VoiceCards />
 
         {ready.length > 0 && (
           <section className="library" id="library">

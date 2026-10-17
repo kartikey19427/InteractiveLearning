@@ -10,7 +10,7 @@ interface Props {
 }
 
 // Narration voice picker: each voice with a short description and a sample
-// (ElevenLabs' public preview clip, so listening costs nothing).
+// (a short clip recorded once and saved with the app, so listening costs nothing).
 export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
@@ -33,10 +33,10 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
   useEffect(() => () => sample.current?.pause(), []);
 
   const play = (v: VoiceOption) => {
-    if (!v.preview_url) return;
+    if (!v.sample_url) return;
     if (playing === v.id) { stopSample(); return; }
     if (!sample.current) sample.current = new Audio();
-    sample.current.src = v.preview_url;
+    sample.current.src = v.sample_url;
     sample.current.onended = () => setPlaying(null);
     void sample.current.play().catch(() => setPlaying(null));
     setPlaying(v.id);
@@ -71,7 +71,7 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
                 <button
                   className="btn icon ghost"
                   type="button"
-                  disabled={!v.preview_url}
+                  disabled={!v.sample_url}
                   onClick={() => play(v)}
                   aria-label={playing === v.id ? `Stop ${v.name} sample` : `Play ${v.name} sample`}
                   title={playing === v.id ? 'Stop sample' : 'Play sample'}

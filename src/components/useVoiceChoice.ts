@@ -1,19 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { listVoices, type VoiceOption } from '../api';
 
-/** The narration voices on offer and the one picked in this browser (Max until changed). */
+// One shared voice choice for every picker on the page (top-bar menu, home
+// cards), remembered in this browser. Max (the server's default) until changed.
+let voices: VoiceOption[] = [];
+let voiceId: string = (() => { try { return localStorage.getItem('voiceId') ?? ''; } catch { return ''; } })();
+let loaded = false;
+const listeners = new Set<() => void>();
+let snapshot = { voices, voiceId };
+const emit = () => { snapshot = { voices, voiceId }; listeners.forEach((l) => l()); };
+
+function load() {
+  if (loaded) return;
+  loaded = true;
+  listVoices().then((r) => {
+    voices = r.voices;
+    if (!(voiceId && r.voices.some((x) => x.id === voiceId))) voiceId = r.default ?? '';
+    emit();
+  }).catch(() => { loaded = false; });
+}
+
+export function chooseVoice(id: string) {
+  try { localStorage.setItem('voiceId', id); } catch { /* storage unavailable */ }
+  voiceId = id;
+  emit();
+}
+
 export function useVoiceChoice() {
-  const [voices, setVoices] = useState<VoiceOption[]>([]);
-  const [voiceId, setVoiceId] = useState<string>(() => { try { return localStorage.getItem('voiceId') ?? ''; } catch { return ''; } });
-  useEffect(() => {
-    listVoices().then((r) => {
-      setVoices(r.voices);
-      setVoiceId((v) => (v && r.voices.some((x) => x.id === v) ? v : r.default ?? ''));
-    }).catch(() => setVoices([]));
-  }, []);
-  const choose = (id: string) => {
-    try { localStorage.setItem('voiceId', id); } catch { /* storage unavailable */ }
-    setVoiceId(id);
-  };
-  return { voices, voiceId, choose };
+  useEffect(load, []);
+  const s = useSyncExternalStore((cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; }, () => snapshot);
+  return { voices: s.voices, voiceId: s.voiceId, choose: chooseVoice };
 }

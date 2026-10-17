@@ -57,7 +57,7 @@ export function getTopic(slug: string, voice?: string) {
   return request<TopicDetail>(`/topics/${encodeURIComponent(slug)}${q}`);
 }
 
-export interface VoiceOption { id: string; name: string; description: string; preview_url: string | null }
+export interface VoiceOption { id: string; name: string; description: string; sample_url: string | null }
 
 export function listVoices() {
   return request<{ default: string | null; voices: VoiceOption[] }>('/voices');

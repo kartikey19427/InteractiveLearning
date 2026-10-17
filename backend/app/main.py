@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-
-import httpx
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -185,28 +183,16 @@ async def get_topic(slug: str, voice: str | None = None, session: AsyncSession =
     return _detail(topic, voice)
 
 
-_previews: dict[str, str] = {}
-
-
 @app.get("/api/voices")
 async def list_voices():
-    """Narration voices for the Voice menu, with ElevenLabs' public sample links (free to play)."""
-    settings = get_settings()
-    if not settings.elevenlabs_api_key:
+    """Narration voices for the voice pickers. Samples are static files recorded once
+    (public/voice-samples/, made by scripts/make_voice_menu_samples.py), so playing
+    one never calls ElevenLabs."""
+    if not get_settings().elevenlabs_api_key:
         return {"default": None, "voices": []}
-    missing = [v["id"] for v in VOICES if v["id"] not in _previews]
-    if missing:
-        async with httpx.AsyncClient(timeout=10, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
-            for vid in missing:
-                try:
-                    res = await client.get(f"https://api.elevenlabs.io/v1/voices/{vid}")
-                    if res.status_code == 200 and res.json().get("preview_url"):
-                        _previews[vid] = res.json()["preview_url"]
-                except httpx.HTTPError:
-                    pass
     return {
         "default": pick_voice(None),
-        "voices": [{**v, "preview_url": _previews.get(v["id"])} for v in VOICES],
+        "voices": [{**v, "sample_url": f"/voice-samples/{v['id']}.mp3"} for v in VOICES],
     }
 
 

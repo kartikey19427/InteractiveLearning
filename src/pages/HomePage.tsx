@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { listTopics, searchTopic, type TopicSummary } from '../api';
 import TopBar from '../components/TopBar';
+import VoiceMenu from '../components/VoiceMenu';
+import { useVoiceChoice } from '../components/useVoiceChoice';
 
 const EXAMPLES = ['How mushrooms reproduce', 'Photosynthesis', 'How vaccines train the immune system', 'Supply and demand', 'How TCP works'];
 
@@ -39,6 +41,7 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topics, setTopics] = useState<TopicSummary[] | null>(null);
+  const voice = useVoiceChoice();
 
   useEffect(() => {
     document.title = 'Interactive Learning';
@@ -75,6 +78,7 @@ export default function HomePage() {
     <div className="app">
       <TopBar>
         <a className="btn ghost" href="#library">My lessons</a>
+        <VoiceMenu voices={voice.voices} selected={voice.voiceId} onChange={voice.choose} />
       </TopBar>
       <main className="home">
         <span className="lbl">Learn anything, interactively</span>

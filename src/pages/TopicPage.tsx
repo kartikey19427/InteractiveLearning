@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ApiError, getTopic, listVoices, retryTopic, type LessonStatus, type TopicDetail, type VoiceOption } from '../api';
+import { ApiError, getTopic, retryTopic, type LessonStatus, type TopicDetail } from '../api';
+import VoiceMenu from '../components/VoiceMenu';
+import { useVoiceChoice } from '../components/useVoiceChoice';
 import LessonPlayer from '../player/LessonPlayer';
 import TopBar from '../components/TopBar';
 
@@ -15,9 +17,10 @@ const STAGES: { key: LessonStatus; label: string }[] = [
  * Used while a lesson is built and for errors, so nothing jumps when it arrives.
  */
 function Skeleton({ title, crumb, action, children }: { title: string; crumb: string; action?: ReactNode; children: ReactNode }) {
+  const voice = useVoiceChoice();
   return (
     <div className="app fixed">
-      <TopBar crumb={<>{crumb} / <b>{title}</b></>}>{action}</TopBar>
+      <TopBar crumb={<>{crumb} / <b>{title}</b></>}>{action}<VoiceMenu voices={voice.voices} selected={voice.voiceId} onChange={voice.choose} /></TopBar>
       <div className="studio">
         <aside className="rail" aria-hidden="true">
           <div className="rail-head">
@@ -58,21 +61,13 @@ export default function TopicPage() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   // Narration voice, remembered in this browser; Max (the server's default) until one is picked.
-  const [voices, setVoices] = useState<VoiceOption[]>([]);
-  const [voiceId, setVoiceId] = useState<string>(() => { try { return localStorage.getItem('voiceId') ?? ''; } catch { return ''; } });
+  const { voices, voiceId, choose } = useVoiceChoice();
   const [resumeAt, setResumeAt] = useState(0);
-  useEffect(() => {
-    listVoices().then((r) => {
-      setVoices(r.voices);
-      setVoiceId((v) => (v && r.voices.some((x) => x.id === v) ? v : r.default ?? ''));
-    }).catch(() => setVoices([]));
-  }, []);
   const changeVoice = (id: string, atIndex: number) => {
-    try { localStorage.setItem('voiceId', id); } catch { /* storage unavailable */ }
     setResumeAt(atIndex);
     // Drop the old voice's audio until the new voice's state arrives, so the player waits for it.
     setTopic((prev) => (prev ? { ...prev, narration: null, narration_state: 'preparing' } : prev));
-    setVoiceId(id);
+    choose(id);
   };
 
   useEffect(() => {

@@ -52,6 +52,9 @@ export default function VoiceMenu({ voices, selected, onChange, onOpen }: Props)
         aria-expanded={open}
         onClick={() => { if (!open) onOpen?.(); setOpen(!open); }}
       >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2.5 6v4h2.5l3.5 3V3L5 6H2.5Z" /><path d="M11 5.5a3.5 3.5 0 0 1 0 5" /><path d="M12.8 3.5a6 6 0 0 1 0 9" />
+        </svg>
         Voice: {current.name}
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
       </button>

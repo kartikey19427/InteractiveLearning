@@ -7,7 +7,7 @@ Search any topic and get an interactive lesson: narrated animated chapters, hand
 
 ## AI Builder Cup 2026
 
-- **Theme:** Media, Content & Digital Experiences (education content: creation, personalization and understanding).
+- **Category:** Education.
 - **Live demo:** _add the Cloud Run URL_
 - **Video (under 3 min):** _add the YouTube / Vimeo / Drive link_
 
@@ -22,7 +22,7 @@ Search any topic and get an interactive lesson: narrated animated chapters, hand
 3. **Authoring:** one Gemini call writes the full lesson as JSON in a typed format (scenes, animations, activities, quiz). It is validated against a schema and a safe expression checker and sent back to Gemini for repair if anything fails, so generated content is never executed as code.
 4. **Narration:** each chapter is recorded once, on demand, in the learner's chosen voice (Max via ElevenLabs by default, Gemini's voice as the fallback, then the browser's own); the player syncs every animation to the sentence timings.
 
-**Built on Google Cloud.** Frontend and API run as one Cloud Run service (root `Dockerfile`); Gemini API for reasoning, grounding and speech. Planned for scale: Cloud SQL for lessons, Cloud Storage for audio, Cloud Tasks for generation jobs.
+**Built on Google Cloud.** The frontend and backend run on Cloud Run (one service, root `Dockerfile`); Gemini is the LLM for understanding, research grounding, lesson authoring and speech fallback; Supabase PostgreSQL stores lessons and narration. Planned for scale: Cloud Storage for audio, Cloud Tasks for generation jobs.
 
 ## How it works
 
@@ -80,7 +80,7 @@ To use Claude instead, set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` in `
 
 The root `Dockerfile` builds the Vite frontend and runs it with FastAPI in one Cloud Run service. The browser and API share one URL, so production requests to `/api/...` need no separate frontend proxy or CORS setup.
 
-Cloud Run's local filesystem is temporary. Create a persistent PostgreSQL database with a provider of your choice, then set `DATABASE_URL` in the Cloud Run service to its connection URL. Set `GEMINI_API_KEY` as a secret (or environment variable for a personal demo); `TAVILY_API_KEY` is optional. Do not put secrets in the Dockerfile or commit them to Git.
+Cloud Run's local filesystem is temporary. Create a persistent PostgreSQL database (we use Supabase PostgreSQL), then set `DATABASE_URL` in the Cloud Run service to its connection URL. Set `GEMINI_API_KEY` as a secret (or environment variable for a personal demo); `TAVILY_API_KEY` is optional. Do not put secrets in the Dockerfile or commit them to Git.
 
 From the repository root, deploy with the Google Cloud CLI:
 

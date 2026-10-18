@@ -97,6 +97,19 @@ _narration_failed: dict[tuple[int, str], float] = {}
 _partial: dict[tuple[int, str], dict] = {}
 _narrators: dict[tuple[int, str], asyncio.Task] = {}
 _quota_until = 0.0
+_narration_credentials: tuple[str | None, str | None] | None = None
+
+
+def _refresh_narration_backoffs() -> None:
+    """A rotated key should not inherit the previous key's failure/quota cooldown."""
+    global _narration_credentials, _quota_until
+    settings = get_settings()
+    credentials = (settings.gemini_api_key, settings.elevenlabs_api_key)
+    if _narration_credentials is not None and credentials != _narration_credentials:
+        _narration_failed.clear()
+        _chapter_failed.clear()
+        _quota_until = 0.0
+    _narration_credentials = credentials
 
 
 def recording_for(topic: Topic, voice: str | None) -> dict | None:
@@ -176,6 +189,7 @@ def partial_narration(topic_id: int, voice: str | None = None) -> dict | None:
 
 def narration_blocked(topic_id: int, voice: str | None = None) -> bool:
     """This voice recently failed (or ran out) for this lesson, so the fallback plays for now."""
+    _refresh_narration_backoffs()
     now = time.time()
     return now < _quota_until or now - _narration_failed.get((topic_id, pick_voice(voice)), 0) < 1800
 
@@ -229,6 +243,7 @@ def chapter_narrating(topic_id: int, voice: str | None, step_id: str) -> bool:
 
 
 def chapter_blocked(topic_id: int, voice: str | None, step_id: str) -> bool:
+    _refresh_narration_backoffs()
     now = time.time()
     return now < _quota_until or now - _chapter_failed.get((topic_id, pick_voice(voice), step_id), 0) < 1800
 

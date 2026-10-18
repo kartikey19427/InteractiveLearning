@@ -190,7 +190,10 @@ async def _speak(client: httpx.AsyncClient, text: str) -> tuple[bytes, int]:
         },
     }
     for attempt in range(6):
-        res = await client.post(TTS_URL.format(model=settings.tts_model), json=body)
+        key = get_settings().gemini_api_key
+        if not key:
+            raise NarrationError("no available Gemini key")
+        res = await client.post(TTS_URL.format(model=settings.tts_model), json=body, headers={"X-goog-api-key": key})
         if res.status_code == 200:
             part = res.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
             return _pcm(base64.b64decode(part["data"]), part.get("mimeType", ""))
@@ -289,7 +292,10 @@ async def _speak_eleven(client: httpx.AsyncClient, text: str, voice: str | None 
     url = ELEVEN_URL.format(voice=pick_voice(voice))
     body = {"text": text, "model_id": settings.elevenlabs_model}
     for attempt in range(4):
-        res = await client.post(url, params={"output_format": f"pcm_{ELEVEN_RATE}"}, json=body)
+        key = get_settings().elevenlabs_api_key
+        if not key:
+            raise NarrationError("no available ElevenLabs key")
+        res = await client.post(url, params={"output_format": f"pcm_{ELEVEN_RATE}"}, json=body, headers={"xi-api-key": key})
         if res.status_code == 200:
             data = res.json()
             return base64.b64decode(data["audio_base64"]), data.get("alignment") or {}
@@ -312,7 +318,7 @@ async def _narrate_eleven(slug: str, videos: list[dict], out_dir: Path, on_clip=
     settings = get_settings()
     voice = pick_voice(voice)
     clips: dict[str, dict] = {}
-    async with httpx.AsyncClient(timeout=ELEVEN_TIMEOUT, headers={"xi-api-key": settings.elevenlabs_api_key}) as client:
+    async with httpx.AsyncClient(timeout=ELEVEN_TIMEOUT) as client:
         for st in videos:
             pcm, alignment = await _speak_eleven(client, " ".join(st["narration"]), voice)
             duration = len(pcm) / 2 / ELEVEN_RATE
@@ -357,7 +363,7 @@ async def narrate_lesson(slug: str, lesson: dict, on_clip=None, voice: str | Non
 async def _narrate_gemini(slug: str, videos: list[dict], out_dir: Path) -> dict:
     settings = get_settings()
     script = "\n\n".join(" ".join(st["narration"]) for st in videos)
-    async with httpx.AsyncClient(timeout=600, headers={"X-goog-api-key": settings.gemini_api_key}) as client:
+    async with httpx.AsyncClient(timeout=600) as client:
         pcm, rate = await _speak(client, script)
     clips: dict[str, dict] = {}
     for st, part in zip(videos, split_chapters(pcm, rate, [st["narration"] for st in videos])):

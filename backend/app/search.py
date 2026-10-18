@@ -29,13 +29,16 @@ def enabled() -> bool:
 
 
 async def _search(client: httpx.AsyncClient, query: str) -> list[dict]:
+    key = get_settings().tavily_api_key
+    if not key:
+        raise SearchUnavailable("No available Tavily key")
     res = await client.post(URL, json={
         "query": query,
         "search_depth": "advanced",
         "max_results": 6,
         "include_answer": False,
         "exclude_domains": EXCLUDE,
-    })
+    }, headers={"Authorization": f"Bearer {key}"})
     if res.status_code in (401, 403):
         raise SearchUnavailable("Tavily rejected the API key")
     if res.status_code == 429 or res.status_code == 432:
@@ -55,8 +58,7 @@ async def search_topic(title: str, query: str) -> list[dict[str, str]]:
     ]
     if query.lower().strip() != title.lower().strip():
         queries.insert(0, query)
-    headers = {"Authorization": f"Bearer {get_settings().tavily_api_key}"}
-    async with httpx.AsyncClient(timeout=60, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         try:
             batches = await asyncio.gather(*(_search(client, q) for q in queries))
         except httpx.TransportError as e:

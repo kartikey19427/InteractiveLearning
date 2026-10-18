@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -60,6 +62,7 @@ class SearchOut(BaseModel):
 
 
 class TopicSummary(BaseModel):
+    id: int
     slug: str
     title: str
     status: str
@@ -95,12 +98,12 @@ def lesson_meta(lesson: dict | None) -> dict | None:
 
 
 def _summary(t: Topic) -> TopicSummary:
-    return TopicSummary(slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at)
+    return TopicSummary(id=t.id, slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at)
 
 
 def _detail(t: Topic) -> TopicDetail:
     return TopicDetail(
-        slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
+        id=t.id, slug=t.slug, title=t.title, status=t.status, updated_at=t.updated_at,
         query=t.query, progress=t.progress, error=t.error,
         lesson=lesson_meta(t.lesson) if t.status in PLAYABLE else None,
     )
@@ -188,6 +191,41 @@ async def _topic(session: AsyncSession, slug: str) -> Topic:
     if topic is None or not topic.lesson:
         raise HTTPException(404, "No lesson for this topic yet.")
     return topic
+
+
+_admin_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
+
+
+async def require_admin(key: str | None = Depends(_admin_header)) -> None:
+    expected = get_settings().admin_api_key
+    if not expected:
+        raise HTTPException(503, "Lesson deletion is not configured. Set ADMIN_API_KEY.")
+    if not key or not secrets.compare_digest(key.encode(), expected.encode()):
+        raise HTTPException(401, "Invalid or missing admin key.")
+
+
+async def _delete_topic(topic: Topic | None, session: AsyncSession) -> dict:
+    if topic is None:
+        raise HTTPException(404, "No lesson for this topic yet.")
+    result = {"deleted": True, "id": topic.id, "slug": topic.slug}
+    await jobs.cancel_topic(topic.id)
+    # PostgreSQL also removes its search aliases via ON DELETE CASCADE.
+    await session.delete(topic)
+    await session.commit()
+    return result
+
+
+@app.delete("/api/topics/id/{topic_id}", dependencies=[Depends(require_admin)])
+async def delete_topic_by_id(topic_id: int, session: AsyncSession = Depends(get_session)):
+    """Permanently delete one lesson and its aliases using its numeric ID."""
+    return await _delete_topic(await session.get(Topic, topic_id), session)
+
+
+@app.delete("/api/topics/{slug}", dependencies=[Depends(require_admin)])
+async def delete_topic_by_slug(slug: str, session: AsyncSession = Depends(get_session)):
+    """Permanently delete one lesson and its aliases using the slug in its page URL."""
+    topic = await session.scalar(select(Topic).where(Topic.slug == slug))
+    return await _delete_topic(topic, session)
 
 
 PAIR = 2  # chapters are sent to the player in pairs: both must be written before either is sent

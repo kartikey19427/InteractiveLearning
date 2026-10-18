@@ -28,14 +28,17 @@ class GeminiProvider:
                 "The server has no Gemini API key yet, so new lessons can't be generated. "
                 "Add GEMINI_API_KEY to backend/.env and restart the server."
             )
-        self.key = settings.gemini_api_key
         self.model = settings.gemini_model
 
     async def _call(self, body: dict) -> dict:
         url = f"{BASE}/{self.model}:generateContent"
-        headers = {"X-goog-api-key": self.key, "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=httpx.Timeout(900, connect=20)) as client:
             for attempt in range(4):
+                # A provider can outlive the refresh interval during lesson repairs.
+                key = get_settings().gemini_api_key
+                if not key:
+                    raise MissingCredentials("The server has no available Gemini API key.")
+                headers = {"X-goog-api-key": key, "Content-Type": "application/json"}
                 try:
                     res = await client.post(url, headers=headers, json=body)
                 except httpx.TransportError as e:

@@ -1,7 +1,16 @@
 from functools import lru_cache
+import logging
+from pathlib import Path
+from threading import Lock
+from time import monotonic
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+log = logging.getLogger(__name__)
+REFRESHABLE_KEYS = ("gemini_api_key", "elevenlabs_api_key", "tavily_api_key", "admin_api_key")
 
 
 class Settings(BaseSettings):
@@ -10,6 +19,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://learning:learning@localhost:5432/learning"
     # Required only for destructive maintenance endpoints.
     admin_api_key: str | None = None
+    # Mounted secret files override environment keys and are reread on demand.
+    gemini_api_key_file: str | None = None
+    elevenlabs_api_key_file: str | None = None
+    tavily_api_key_file: str | None = None
+    admin_api_key_file: str | None = None
+    secret_refresh_seconds: float = Field(default=60, ge=1, le=3600)
     # Which model provider writes lessons.
     llm_provider: Literal["gemini", "anthropic"] = "gemini"
 
@@ -47,5 +62,54 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def _base_settings() -> Settings:
     return Settings()
+
+
+class SecretFiles:
+    """Cache reads briefly; always reopen the path so Cloud Run can resolve latest."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, tuple[float, str | None]] = {}
+        self._lock = Lock()
+
+    def read(self, path: str, interval: float) -> str | None:
+        with self._lock:
+            now = monotonic()
+            cached = self._cache.get(path)
+            if cached is not None and now < cached[0]:
+                return cached[1]
+            try:
+                value = Path(path).read_text(encoding="utf-8").strip() or None
+            except (OSError, UnicodeError):
+                # Do not leak credentials or silently revive an old environment key.
+                log.warning("Could not read a mounted API secret; credential unavailable until the next refresh")
+                value = None
+            self._cache[path] = (monotonic() + interval, value)
+            return value
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+
+_secret_files = SecretFiles()
+
+
+def get_settings() -> Settings:
+    base = _base_settings()
+    overrides = {
+        name: _secret_files.read(path, base.secret_refresh_seconds)
+        for name in REFRESHABLE_KEYS
+        if (path := getattr(base, f"{name}_file"))
+    }
+    return base.model_copy(update=overrides) if overrides else base
+
+
+def _clear_settings_cache() -> None:
+    _base_settings.cache_clear()
+    _secret_files.clear()
+
+
+# Preserve the cache reset used by local scripts and existing tests.
+get_settings.cache_clear = _clear_settings_cache

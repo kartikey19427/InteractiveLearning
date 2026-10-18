@@ -11,6 +11,17 @@ from app import narration
 from app.narration import QuotaExhausted, aligned_bounds
 
 
+@pytest.fixture(autouse=True)
+def fake_api_key(monkeypatch):
+    # HTTP calls are mocked; do not depend on a developer's real credentials.
+    from app.config import get_settings
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setenv("ELEVENLABS_API_KEY_FILE", "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def alignment(text: str, seconds_per_char: float = 0.05) -> dict:
     return {
         "characters": list(text),

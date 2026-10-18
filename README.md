@@ -76,6 +76,24 @@ Without an API key, saved lessons still open, but new topics show a clear "no AP
 
 To use Claude instead, set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` in `backend/.env`. `GEMINI_MODEL` picks the Gemini model (default `gemini-flash-latest`).
 
+## Delete a saved lesson
+
+Set `ADMIN_API_KEY` in `backend/.env` locally, or bind a secret with that name in Cloud Run. Never put this key in the frontend. With no key configured, deletion is disabled (503); missing or incorrect request keys return 401.
+
+`GET /api/topics` and `GET /api/topics/{slug}` include the numeric `id`. Use either that ID or the slug from the lesson's URL:
+
+```bash
+# Replace 123 with the ID of the lesson you want to permanently remove.
+curl -X DELETE "https://YOUR_SERVICE_URL/api/topics/id/123" \
+  -H "X-Admin-Key: YOUR_ADMIN_KEY"
+
+# Or use its readable slug:
+curl -X DELETE "https://YOUR_SERVICE_URL/api/topics/photosynthesis-process" \
+  -H "X-Admin-Key: YOUR_ADMIN_KEY"
+```
+
+The response identifies the deleted lesson: `{"deleted":true,"id":123,"slug":"photosynthesis-process"}`. A missing lesson returns 404. This permanently deletes the lesson (including saved narration metadata) and its search aliases from PostgreSQL, stops generation/narration tasks on the current instance, and clears their in-memory caches. Unrelated lessons and aliases are retained. Audio files on disk are not removed. Searching for the topic again can generate a new lesson. In-process task cancellation is limited to the current instance; a deployment with multiple workers needs shared job coordination.
+
 ## Deploy the frontend and API together on Cloud Run
 
 The root `Dockerfile` builds the Vite frontend and runs it with FastAPI in one Cloud Run service. The browser and API share one URL, so production requests to `/api/...` need no separate frontend proxy or CORS setup.
@@ -87,7 +105,7 @@ From the repository root, deploy with the Google Cloud CLI:
 ```bash
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
-gcloud run deploy interactive-learning --source . --region asia-south1 --allow-unauthenticated --max 1 --memory 1Gi
+gcloud run deploy askademy --source . --region asia-south1 --allow-unauthenticated --min 0 --max 1 --memory 1Gi
 ```
 
 When prompted, enable the required APIs and allow public access. In the Cloud Run service's **Edit and deploy new revision → Variables & Secrets**, add `DATABASE_URL` and `GEMINI_API_KEY`, then deploy the revision. Open the service URL shown by Cloud Run.

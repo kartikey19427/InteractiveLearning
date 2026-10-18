@@ -186,6 +186,26 @@ _chapter_tasks: dict[tuple[int, str, str], asyncio.Task] = {}
 _chapter_failed: dict[tuple[int, str, str], float] = {}
 
 
+async def cancel_topic(topic_id: int) -> None:
+    """Stop this instance's lesson/voice jobs before deleting a lesson."""
+    tasks = []
+    task = _running.pop(topic_id, None)
+    if task is not None:
+        tasks.append(task)
+    for registry in (_narrators, _chapter_tasks):
+        for key in list(registry):
+            if key[0] == topic_id:
+                tasks.append(registry.pop(key))
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    for cache in (_narration_failed, _partial, _chapter_failed):
+        for key in list(cache):
+            if key[0] == topic_id:
+                cache.pop(key, None)
+
+
 def clip_is_voice(url: str, voice: str) -> bool:
     """Whether a saved clip really is in `voice`. Clip files carry their voice in the name, so a
     record that is labelled with one voice but points at another voice's file is not trusted."""

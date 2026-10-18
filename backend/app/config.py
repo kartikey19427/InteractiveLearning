@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg://learning:learning@localhost:5432/learning"
+    # Required only for destructive maintenance endpoints.
+    admin_api_key: str | None = None
     # Which model provider writes lessons.
     llm_provider: Literal["gemini", "anthropic"] = "gemini"
 

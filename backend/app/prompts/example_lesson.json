@@ -1,0 +1,1139 @@
+{
+  "title": "Where rain comes from",
+  "eyebrow": "Interactive lesson · Earth science · Water cycle",
+  "summary": "Follow water from the ocean into the sky and back. The video pauses where you can test the idea yourself.",
+  "palette": {
+    "sun": "#F2C14E",
+    "sea": "#4A90C2",
+    "vapor": "#CFE6F2",
+    "dust": "#B08A5A",
+    "cloud": "#E8EEF2",
+    "accent": "#4A90C2"
+  },
+  "functions": {
+    "rate": {
+      "args": [
+        "T",
+        "W"
+      ],
+      "expr": "max(0, (T + 5) / 45) * (0.4 + 0.6 * W / 100)"
+    }
+  },
+  "steps": [
+    {
+      "kind": "video",
+      "id": "intro",
+      "title": "What you'll learn",
+      "tag": "Overview",
+      "narration": [
+        "Every raindrop has made a long journey before it lands on you.",
+        "You'll see how the sun lifts water into the sky, how clouds build raindrops, and how rain returns to the sea."
+      ],
+      "terms": [],
+      "scene": {
+        "duration": 12,
+        "shots": [
+          {
+            "sentence": 0,
+            "look": "blueprint",
+            "camera": {
+              "zoom": [
+                1,
+                1.12
+              ]
+            },
+            "elements": [
+              {
+                "type": "ellipse",
+                "x": 400,
+                "y": 225,
+                "rx": {
+                  "$": "60 + 20 * ease(p)"
+                },
+                "ry": {
+                  "$": "80 + 26 * ease(p)"
+                },
+                "stroke": "#CFE3FF",
+                "lineWidth": 2.5,
+                "alpha": {
+                  "$": "sub(p, 0, 0.4)"
+                }
+              },
+              {
+                "type": "ellipse",
+                "x": 400,
+                "y": 240,
+                "rx": {
+                  "$": "34 * ease(sub(p, 0.2, 0.8))"
+                },
+                "fill": "#5BC8FF",
+                "alpha": 0.9
+              },
+              {
+                "type": "label",
+                "text": "Where rain comes from",
+                "x": 400,
+                "y": 64,
+                "size": 1.5,
+                "weight": 700,
+                "bg": false,
+                "alpha": {
+                  "$": "sub(p, 0.1, 0.5)"
+                }
+              }
+            ]
+          },
+          {
+            "sentence": 1,
+            "look": "world",
+            "camera": {
+              "zoom": [
+                1.08,
+                1
+              ],
+              "pan": [
+                0,
+                -10
+              ]
+            },
+            "elements": [
+              {
+                "type": "group",
+                "items": [
+                  {
+                    "n": "1",
+                    "t": "The sun lifts water",
+                    "at": 0.25
+                  },
+                  {
+                    "n": "2",
+                    "t": "Clouds build raindrops",
+                    "at": 1.6
+                  },
+                  {
+                    "n": "3",
+                    "t": "Rain returns to the sea",
+                    "at": 3
+                  }
+                ],
+                "as": "c",
+                "y": {
+                  "$": "150 + i * 80"
+                },
+                "alpha": {
+                  "$": "sub(t, c.at, c.at + 0.6)"
+                },
+                "children": [
+                  {
+                    "type": "ellipse",
+                    "x": 230,
+                    "y": 0,
+                    "rx": 24,
+                    "fill": "#2F6FA8"
+                  },
+                  {
+                    "type": "label",
+                    "text": {
+                      "$": "c.n"
+                    },
+                    "x": 230,
+                    "y": 0,
+                    "bg": false,
+                    "color": "#FFFFFF",
+                    "weight": 700
+                  },
+                  {
+                    "type": "label",
+                    "text": {
+                      "$": "c.t"
+                    },
+                    "x": 275,
+                    "y": 0,
+                    "align": "left",
+                    "bg": false,
+                    "color": "#3A2A1A",
+                    "size": 1.2
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "video",
+      "id": "evaporate",
+      "title": "The sun lifts water",
+      "tag": "Evaporation",
+      "narration": [
+        "Sunlight warms the surface of the ocean.",
+        "The fastest water molecules escape into the air as an invisible gas called water vapor.",
+        "Warm, moist air rises, and as it climbs it cools."
+      ],
+      "terms": [
+        {
+          "term": "Evaporation",
+          "definition": "Liquid water turning into water vapor, a gas."
+        },
+        {
+          "term": "Water vapor",
+          "definition": "Water as an invisible gas mixed into the air."
+        }
+      ],
+      "scene": {
+        "duration": 10,
+        "shots": [
+          {
+            "sentence": 0,
+            "look": "world",
+            "camera": {
+              "zoom": [
+                1,
+                1.14
+              ],
+              "pan": [
+                -10,
+                -8
+              ]
+            },
+            "elements": [
+              {
+                "type": "ellipse",
+                "x": 640,
+                "y": 95,
+                "rx": 62,
+                "fill": "#F2C14E",
+                "alpha": 0.28
+              },
+              {
+                "type": "ellipse",
+                "x": 640,
+                "y": 95,
+                "rx": 38,
+                "fill": "#F2C14E"
+              },
+              {
+                "type": "rect",
+                "x": 0,
+                "y": 300,
+                "w": 800,
+                "h": 150,
+                "fill": "@sea"
+              },
+              {
+                "type": "group",
+                "repeat": 4,
+                "y": {
+                  "$": "i * 24"
+                },
+                "children": [
+                  {
+                    "type": "path",
+                    "d": "M0 318 C200 306 400 330 600 314 S800 320 800 320",
+                    "stroke": "#FFFFFF",
+                    "lineWidth": 2,
+                    "alpha": 0.45
+                  }
+                ]
+              },
+              {
+                "type": "callout",
+                "text": "sunlight",
+                "x": 640,
+                "y": 95,
+                "lx": 520,
+                "ly": 52,
+                "color": "#7A4A12"
+              },
+              {
+                "type": "callout",
+                "text": "the ocean",
+                "x": 160,
+                "y": 340,
+                "lx": 160,
+                "ly": 405,
+                "color": "#1B3A5C"
+              }
+            ]
+          },
+          {
+            "sentence": 1,
+            "look": "blueprint",
+            "camera": {
+              "zoom": [
+                1,
+                1.2
+              ],
+              "pan": [
+                0,
+                -18
+              ]
+            },
+            "elements": [
+              {
+                "type": "path",
+                "d": "M0 330 C150 312 300 346 450 326 S700 316 800 332",
+                "stroke": "#CFE3FF",
+                "lineWidth": 2.5
+              },
+              {
+                "type": "particles",
+                "seed": 3,
+                "count": 50,
+                "emit": [
+                  0.2,
+                  3.5
+                ],
+                "x": [
+                  120,
+                  680
+                ],
+                "y": [
+                  322,
+                  334
+                ],
+                "vx": [
+                  -8,
+                  8
+                ],
+                "vy": [
+                  -60,
+                  -34
+                ],
+                "r": 2.6,
+                "color": "#CFE3FF"
+              },
+              {
+                "type": "ellipse",
+                "x": {
+                  "$": "400 + 6 * sin(t * 2)"
+                },
+                "y": {
+                  "$": "326 - 120 * ease(sub(t, 0.3, 3))"
+                },
+                "rx": 13,
+                "fill": "#5BE3A0",
+                "alpha": 0.95
+              },
+              {
+                "type": "callout",
+                "text": "a fast molecule escapes",
+                "x": 400,
+                "y": 230,
+                "lx": 560,
+                "ly": 150,
+                "color": "#5BE3A0"
+              },
+              {
+                "type": "label",
+                "text": "liquid water",
+                "x": 150,
+                "y": 385,
+                "bg": false,
+                "color": "#CFE3FF"
+              }
+            ]
+          },
+          {
+            "sentence": 2,
+            "look": "world",
+            "camera": {
+              "zoom": [
+                1,
+                1.1
+              ],
+              "pan": [
+                0,
+                -26
+              ]
+            },
+            "elements": [
+              {
+                "type": "rect",
+                "x": 0,
+                "y": 300,
+                "w": 800,
+                "h": 150,
+                "fill": "@sea"
+              },
+              {
+                "type": "group",
+                "repeat": 4,
+                "y": {
+                  "$": "i * 24"
+                },
+                "children": [
+                  {
+                    "type": "path",
+                    "d": "M0 318 C200 306 400 330 600 314 S800 320 800 320",
+                    "stroke": "#FFFFFF",
+                    "lineWidth": 2,
+                    "alpha": 0.45
+                  }
+                ]
+              },
+              {
+                "type": "particles",
+                "seed": 9,
+                "count": 40,
+                "emit": [
+                  0,
+                  2.5
+                ],
+                "x": [
+                  150,
+                  650
+                ],
+                "y": [
+                  300,
+                  310
+                ],
+                "vx": [
+                  -6,
+                  6
+                ],
+                "vy": [
+                  -70,
+                  -45
+                ],
+                "r": 3,
+                "color": "#FFFFFF"
+              },
+              {
+                "type": "group",
+                "x": 520,
+                "y": {
+                  "$": "110 - 18 * ease(p)"
+                },
+                "alpha": {
+                  "$": "sub(p, 0.4, 0.9)"
+                },
+                "children": [
+                  {
+                    "type": "ellipse",
+                    "x": -50,
+                    "y": 12,
+                    "rx": 46,
+                    "ry": 28,
+                    "fill": "#FFFFFF"
+                  },
+                  {
+                    "type": "ellipse",
+                    "x": 0,
+                    "y": -8,
+                    "rx": 58,
+                    "ry": 38,
+                    "fill": "#FFFFFF"
+                  },
+                  {
+                    "type": "ellipse",
+                    "x": 55,
+                    "y": 12,
+                    "rx": 46,
+                    "ry": 28,
+                    "fill": "#FFFFFF"
+                  }
+                ]
+              },
+              {
+                "type": "callout",
+                "text": "air rises and cools",
+                "x": 300,
+                "y": 200,
+                "lx": 150,
+                "ly": 120,
+                "color": "#7A4A12"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "simulation",
+      "id": "dry",
+      "title": "Dry the puddle",
+      "tag": "Try it · sliders",
+      "intro": "A puddle sits on the pavement. You control the weather. Predict first, then test it.",
+      "caption": "Your turn: predict, then test it with the sliders.",
+      "controls": [
+        {
+          "id": "T",
+          "label": "Air temperature",
+          "min": 0,
+          "max": 40,
+          "step": 1,
+          "initial": 10,
+          "unit": " °C"
+        },
+        {
+          "id": "W",
+          "label": "Wind",
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "initial": 0,
+          "unit": "%"
+        }
+      ],
+      "state": {
+        "water": 1,
+        "vap": 0
+      },
+      "update": [
+        {
+          "var": "water",
+          "expr": "max(0, water - rate(T, W) * dt * 0.12)"
+        },
+        {
+          "var": "vap",
+          "expr": "1 - water"
+        }
+      ],
+      "predict": {
+        "question": "Which day dries a puddle fastest?",
+        "options": [
+          {
+            "label": "Cold and still",
+            "correct": false,
+            "feedback": "Cold water molecules move slowly, so few escape. Try it and see."
+          },
+          {
+            "label": "Warm and windy",
+            "correct": true,
+            "feedback": "Right. Heat speeds the molecules up and wind carries the vapor away. Confirm it with the sliders."
+          },
+          {
+            "label": "Warm and still",
+            "correct": false,
+            "feedback": "Close. Warmth helps, but still air fills up with vapor. Add wind and compare."
+          }
+        ]
+      },
+      "readouts": [
+        {
+          "label": "Evaporation rate",
+          "kind": "bar",
+          "value": "rate(T, W)"
+        },
+        {
+          "label": "Puddle left",
+          "kind": "text",
+          "value": "round(water * 100) + '%'"
+        },
+        {
+          "label": "Status",
+          "kind": "text",
+          "rules": [
+            {
+              "when": "water <= 0.02",
+              "text": "Dry"
+            },
+            {
+              "when": "rate(T, W) < 0.25",
+              "text": "Drying slowly"
+            },
+            {
+              "when": "true",
+              "text": "Drying fast"
+            }
+          ]
+        }
+      ],
+      "presets": [
+        {
+          "label": "Heat wave 38 °C",
+          "set": {
+            "T": 38
+          }
+        },
+        {
+          "label": "Gale",
+          "set": {
+            "W": 100
+          }
+        },
+        {
+          "label": "Freezing 0 °C",
+          "set": {
+            "T": 0
+          }
+        },
+        {
+          "label": "Refill puddle",
+          "reset": true
+        }
+      ],
+      "goal": {
+        "when": "water <= 0.02",
+        "note": "The puddle evaporated. Continue when you are ready."
+      },
+      "scene": {
+        "elements": [
+          {
+            "type": "rect",
+            "x": 0,
+            "y": 330,
+            "w": 800,
+            "h": 120,
+            "fill": "#3A3A2E"
+          },
+          {
+            "type": "ellipse",
+            "x": 400,
+            "y": 362,
+            "rx": {
+              "$": "20 + 200 * water"
+            },
+            "ry": {
+              "$": "5 + 20 * water"
+            },
+            "fill": "@sea",
+            "alpha": {
+              "$": "water > 0.01 ? 1 : 0"
+            }
+          },
+          {
+            "type": "scatter",
+            "seed": 4,
+            "count": 140,
+            "x": 150,
+            "y": 60,
+            "w": 500,
+            "h": 230,
+            "r": [
+              1.5,
+              3
+            ],
+            "color": "@vapor",
+            "fraction": {
+              "$": "vap"
+            }
+          },
+          {
+            "type": "group",
+            "repeat": 4,
+            "alpha": {
+              "$": "W / 100"
+            },
+            "y": {
+              "$": "i * 40"
+            },
+            "children": [
+              {
+                "type": "path",
+                "d": "M40 120 C80 110 120 130 160 120",
+                "stroke": "#CFE3D6",
+                "lineWidth": 2
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "text": {
+              "$": "T + ' °C · wind ' + W + '%'"
+            },
+            "x": 400,
+            "y": 428,
+            "bg": true
+          }
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "raindrop",
+      "title": "Build a raindrop",
+      "tag": "Try it · drag",
+      "intro": "You are inside a cloud. Vapor needs something to condense on, then droplets must grow before they can fall.",
+      "caption": "Your turn: drag the vapor onto the dust speck, then follow the steps.",
+      "prompt": "Drag the vapor onto the dust speck.",
+      "steps": [
+        {
+          "label": "Condense",
+          "action": {
+            "type": "merge",
+            "tokens": [
+              {
+                "x": 320,
+                "y": 230,
+                "color": "@vapor",
+                "label": "H₂O"
+              },
+              {
+                "x": 480,
+                "y": 230,
+                "color": "@dust",
+                "label": "dust"
+              }
+            ]
+          },
+          "done": "Vapor condensed on the dust speck and made a tiny cloud droplet."
+        },
+        {
+          "label": "Collide",
+          "action": {
+            "type": "button",
+            "label": "Collide droplets"
+          },
+          "early": "Make a cloud droplet first.",
+          "done": "Droplets bumped together and merged into one heavier drop."
+        },
+        {
+          "label": "Fall",
+          "action": {
+            "type": "button",
+            "label": "Let it fall"
+          },
+          "done": "Too heavy to float, it falls as rain."
+        }
+      ],
+      "base": [
+        {
+          "type": "group",
+          "x": 400,
+          "y": 70,
+          "alpha": 0.35,
+          "children": [
+            {
+              "type": "ellipse",
+              "x": -160,
+              "y": 10,
+              "rx": 120,
+              "ry": 50,
+              "fill": "@cloud"
+            },
+            {
+              "type": "ellipse",
+              "x": 0,
+              "y": -10,
+              "rx": 160,
+              "ry": 70,
+              "fill": "@cloud"
+            },
+            {
+              "type": "ellipse",
+              "x": 160,
+              "y": 10,
+              "rx": 120,
+              "ry": 50,
+              "fill": "@cloud"
+            }
+          ]
+        },
+        {
+          "type": "rect",
+          "x": 0,
+          "y": 420,
+          "w": 800,
+          "h": 30,
+          "fill": "#2A3A2E"
+        }
+      ],
+      "stages": [
+        [],
+        [
+          {
+            "type": "ellipse",
+            "x": 400,
+            "y": 230,
+            "rx": 12,
+            "fill": "@sea",
+            "stroke": "#FFFFFF",
+            "lineWidth": 2
+          },
+          {
+            "type": "label",
+            "text": "cloud droplet",
+            "x": 430,
+            "y": 230,
+            "align": "left"
+          }
+        ],
+        [
+          {
+            "type": "group",
+            "repeat": 6,
+            "vars": {
+              "a": "i / 6 * TAU",
+              "d": "lerp(110, 0, ease(sub(t, 0, 0.9)))"
+            },
+            "alpha": {
+              "$": "1 - sub(t, 0.7, 0.9)"
+            },
+            "children": [
+              {
+                "type": "ellipse",
+                "x": {
+                  "$": "400 + cos(a) * d"
+                },
+                "y": {
+                  "$": "230 + sin(a) * d"
+                },
+                "rx": 9,
+                "fill": "@sea"
+              }
+            ]
+          },
+          {
+            "type": "ellipse",
+            "x": 400,
+            "y": 230,
+            "rx": {
+              "$": "12 + 14 * ease(sub(t, 0, 0.9))"
+            },
+            "fill": "@sea",
+            "stroke": "#FFFFFF",
+            "lineWidth": 2
+          },
+          {
+            "type": "label",
+            "text": "heavier drop",
+            "x": 440,
+            "y": 230,
+            "align": "left",
+            "alpha": {
+              "$": "sub(t, 0.9, 1.4)"
+            }
+          }
+        ],
+        [
+          {
+            "type": "ellipse",
+            "x": 400,
+            "y": {
+              "$": "min(400, 230 + 40 * t + 110 * t * t)"
+            },
+            "rx": 22,
+            "ry": 26,
+            "fill": "@sea",
+            "stroke": "#FFFFFF",
+            "lineWidth": 2
+          },
+          {
+            "type": "label",
+            "text": "raindrop",
+            "x": 440,
+            "y": {
+              "$": "min(400, 230 + 40 * t + 110 * t * t)"
+            },
+            "align": "left"
+          }
+        ]
+      ],
+      "goal": {
+        "note": "Raindrop complete. Continue to watch the rain."
+      }
+    },
+    {
+      "kind": "video",
+      "id": "rain",
+      "title": "Rain falls",
+      "tag": "Precipitation",
+      "narration": [
+        "Inside the cloud, billions of droplets collide and grow.",
+        "When they get too heavy for rising air to hold up, they fall as rain or snow.",
+        "The water collects in rivers and oceans, ready to evaporate again."
+      ],
+      "terms": [
+        {
+          "term": "Condensation",
+          "definition": "Water vapor cooling into liquid droplets."
+        },
+        {
+          "term": "Precipitation",
+          "definition": "Water falling from clouds as rain, snow, sleet or hail."
+        }
+      ],
+      "scene": {
+        "duration": 10,
+        "shots": [
+          {
+            "sentence": 0,
+            "look": "blueprint",
+            "camera": {
+              "zoom": [
+                1,
+                1.15
+              ]
+            },
+            "elements": [
+              {
+                "type": "group",
+                "repeat": 6,
+                "vars": {
+                  "a": "i / 6 * TAU",
+                  "d": "lerp(150, 0, ease(sub(p, 0.1, 0.8)))"
+                },
+                "alpha": {
+                  "$": "1 - sub(p, 0.78, 0.9)"
+                },
+                "children": [
+                  {
+                    "type": "ellipse",
+                    "x": {
+                      "$": "400 + cos(a) * d"
+                    },
+                    "y": {
+                      "$": "225 + sin(a) * d"
+                    },
+                    "rx": 16,
+                    "fill": "#5BC8FF"
+                  }
+                ]
+              },
+              {
+                "type": "ellipse",
+                "x": 400,
+                "y": 225,
+                "rx": {
+                  "$": "18 + 30 * ease(sub(p, 0.6, 1))"
+                },
+                "fill": "#5BC8FF",
+                "stroke": "#FFFFFF",
+                "lineWidth": 2
+              },
+              {
+                "type": "callout",
+                "text": "droplets collide and grow",
+                "x": 400,
+                "y": 225,
+                "lx": 600,
+                "ly": 120,
+                "color": "#CFE3FF"
+              }
+            ]
+          },
+          {
+            "sentence": 1,
+            "look": "world",
+            "camera": {
+              "zoom": [
+                1,
+                1.1
+              ],
+              "pan": [
+                0,
+                12
+              ]
+            },
+            "elements": [
+              {
+                "type": "rect",
+                "x": 0,
+                "y": 330,
+                "w": 800,
+                "h": 120,
+                "fill": "#6B8E5A"
+              },
+              {
+                "type": "group",
+                "x": 400,
+                "y": 90,
+                "children": [
+                  {
+                    "type": "ellipse",
+                    "x": -90,
+                    "y": 10,
+                    "rx": 80,
+                    "ry": 40,
+                    "fill": "#8E9AA6"
+                  },
+                  {
+                    "type": "ellipse",
+                    "x": 0,
+                    "y": -12,
+                    "rx": 100,
+                    "ry": 55,
+                    "fill": "#8E9AA6"
+                  },
+                  {
+                    "type": "ellipse",
+                    "x": 90,
+                    "y": 10,
+                    "rx": 80,
+                    "ry": 40,
+                    "fill": "#8E9AA6"
+                  }
+                ]
+              },
+              {
+                "type": "particles",
+                "seed": 8,
+                "count": 110,
+                "emit": [
+                  0,
+                  3
+                ],
+                "x": [
+                  320,
+                  480
+                ],
+                "y": [
+                  130,
+                  140
+                ],
+                "vx": [
+                  -4,
+                  4
+                ],
+                "vy": [
+                  90,
+                  130
+                ],
+                "gravity": 60,
+                "floor": 336,
+                "r": 2.6,
+                "color": "#2F6FA8"
+              },
+              {
+                "type": "callout",
+                "text": "too heavy: rain falls",
+                "x": 400,
+                "y": 230,
+                "lx": 160,
+                "ly": 200,
+                "color": "#2A3A1A"
+              }
+            ]
+          },
+          {
+            "sentence": 2,
+            "look": "blueprint",
+            "camera": {
+              "zoom": [
+                1.05,
+                1
+              ],
+              "pan": [
+                -12,
+                0
+              ]
+            },
+            "elements": [
+              {
+                "type": "path",
+                "d": "M60 120 C220 140 260 280 400 290 S640 330 760 330",
+                "stroke": "#5BC8FF",
+                "lineWidth": 4,
+                "progress": {
+                  "$": "ease(sub(p, 0, 0.8))"
+                }
+              },
+              {
+                "type": "ellipse",
+                "x": 690,
+                "y": 335,
+                "rx": {
+                  "$": "60 * ease(sub(p, 0.5, 1))"
+                },
+                "ry": {
+                  "$": "22 * ease(sub(p, 0.5, 1))"
+                },
+                "fill": "#2F6FA8",
+                "alpha": 0.8
+              },
+              {
+                "type": "callout",
+                "text": "water runs to the sea",
+                "x": 420,
+                "y": 288,
+                "lx": 560,
+                "ly": 170,
+                "color": "#CFE3FF"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "quiz",
+      "id": "quiz",
+      "title": "Check understanding",
+      "tag": "Quiz · 3 questions",
+      "questions": [
+        {
+          "question": "What makes a puddle evaporate faster?",
+          "options": [
+            "Cold, still air",
+            "Warm, moving air",
+            "Darkness"
+          ],
+          "answer": 1,
+          "explanation": "Heat speeds up molecules so more escape, and wind carries the vapor away."
+        },
+        {
+          "question": "What does water vapor need to condense into a cloud droplet?",
+          "options": [
+            "A tiny particle such as dust",
+            "Sunlight",
+            "Salt water"
+          ],
+          "answer": 0,
+          "explanation": "Vapor condenses onto tiny particles called condensation nuclei."
+        },
+        {
+          "question": "Why do cloud droplets eventually fall?",
+          "options": [
+            "The cloud runs out of air",
+            "They merge until rising air can't hold them up",
+            "Wind pushes them down"
+          ],
+          "answer": 1,
+          "explanation": "Collisions grow droplets until gravity wins over the rising air."
+        }
+      ],
+      "scene": {
+        "elements": [
+          {
+            "type": "cycle",
+            "x": 400,
+            "y": 225,
+            "rx": 250,
+            "ry": 150,
+            "nodes": [
+              {
+                "label": "Evaporation",
+                "step": "evaporate"
+              },
+              {
+                "label": "Condensation",
+                "step": "raindrop"
+              },
+              {
+                "label": "Precipitation",
+                "step": "rain"
+              },
+              {
+                "label": "Collection"
+              }
+            ]
+          },
+          {
+            "type": "label",
+            "text": "The water cycle",
+            "x": 400,
+            "y": 217
+          },
+          {
+            "type": "label",
+            "text": "filled = chapters you finished",
+            "x": 400,
+            "y": 241,
+            "alpha": 0.7,
+            "weight": 400
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "title": "The water cycle (USGS)",
+      "url": "https://www.usgs.gov/special-topics/water-science-school/science/water-cycle"
+    }
+  ],
+  "note": "Sliders use a simplified teaching model, not measurements."
+}

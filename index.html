@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/brand/askademy-mark.svg" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/svg+xml" href="/brand/askademy-mark-dark.svg" media="(prefers-color-scheme: dark)" />
+    <link rel="apple-touch-icon" href="/brand/askademy-mark.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Askademy</title>
+    <meta name="description" content="Type any topic and get a narrated, animated, hands-on lesson written by Gemini." />
+    <script>
+      // Apply a saved light/dark choice before first paint (no flash).
+      try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
